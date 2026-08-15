@@ -1,6 +1,6 @@
 # UK Solar System Sizer
 
-A Streamlit feasibility calculator for UK domestic solar PV, batteries, inverters and EV demand. It separates a tested calculation engine from the interface and highlights questions that require datasheets, site modelling, an installer or the DNO.
+A consumer-first Streamlit feasibility calculator for UK domestic solar PV, batteries, inverters and EV demand. Simple mode uses cached postcode and PVGIS data; Advanced mode retains datasheet, MPPT, grid and manual-yield controls.
 
 ## Run and test
 
@@ -16,6 +16,8 @@ This is an early-stage planning tool, not an electrical design, MCS calculation,
 ## Affiliate configuration
 
 Commercial offers are configured in `solar_sizer/affiliates.py`. Only entries with `enabled=True` are rendered. The genuine Amazon UK Associates link is enabled with its disclosure; the two applications awaiting approval remain configured but disabled. Confirm approval and replace each pending URL with its approved tracking URL before enabling it.
+
+The quote-interest sink in `solar_sizer/leads.py` deliberately validates but stores and transmits nothing. Replace that function with an owner-approved service only after privacy, consent, retention and processor terms are ready. Anonymous analytics currently remain in Streamlit session memory and contain event name/time only.
 
 ## Commercial launch checklist
 
