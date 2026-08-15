@@ -74,5 +74,5 @@ with aff_col2:
 with aff_col3:
     st.markdown("### Balance of System")
     st.markdown("16mm armoured cable, DC breakers, and consumer units.")
-    st.markdown("[Check Amazon UK Electricals](https://www.amazon.co.uk/)" \
+    st.markdown("[Check Amazon UK Electricals](https://link.amazon/B05z6RNmr)" \
                 " *(Affiliate link)*")
