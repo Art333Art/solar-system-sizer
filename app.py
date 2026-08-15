@@ -1,3 +1,4 @@
+
 import streamlit as st
 
 # Page Configuration
@@ -15,9 +16,13 @@ st.markdown("Calculate your hybrid inverter limits, cold-weather string safety, 
 st.sidebar.header("1. System Inputs")
 daily_usage = st.sidebar.slider("Daily Home Usage (kWh)", 5.0, 30.0, 10.0, 0.5)
 ev_commute = st.sidebar.slider("EV Commute / Daily Charging (kWh)", 0.0, 30.0, 3.5, 0.5)
-panels_in_series = st.sidebar.slider("Panels in Series", 4, 16, 8, 1)
+panels_in_series = st.sidebar.slider("Panels in Series", 4, 24, 10, 1)
 voc = st.sidebar.slider("Panel Open Circuit Voltage (Voc)", 30.0, 60.0, 37.0, 0.5)
-inverter_max_mppt = st.sidebar.number_input("Inverter Max MPPT Voltage (V)", value=450.0, step=10.0)
+inverter_max_mppt = st.sidebar.number_input("Inverter Max MPPT Voltage (V)", value=600.0, step=25.0, min_value=100.0, max_value=1000.0)
+
+st.sidebar.markdown("---")
+st.sidebar.header("2. Grid & Export Specs")
+inverter_output_kw = st.sidebar.number_input("Inverter Max AC Output / Export Rating (kW)", value=3.68, step=0.25, min_value=1.0, max_value=15.0, help="Rated continuous AC output power for G98/G99 compliance checks.")
 
 # Calculations
 total_daily_energy = daily_usage + ev_commute
@@ -50,7 +55,11 @@ if cold_voc <= inverter_max_mppt:
 else:
     st.error(f"⚠️ DANGER: Cold weather string Voc is {cold_voc:.1f}V, exceeding the {inverter_max_mppt:.1f}V inverter limit! Reduce panels in series.")
 
-st.info("UK G98 Grid Regulation Note: For a standard single-phase domestic supply, export limits up to 3.68kW (16A) fall under 'fit and inform'. Anything larger requires pre-approval (G99) from your DNO.")
+# Dynamic G98 vs G99 Compliance Status
+if inverter_output_kw <= 3.68:
+    st.success(f"✅ **G98 Eligible ({inverter_output_kw} kW AC)**: Falls under standard UK single-phase 'Fit & Inform' rules. No prior DNO approval needed (notify within 28 days of commissioning).")
+else:
+    st.warning(f"⚠️ **G99 Approval Required ({inverter_output_kw} kW AC)**: Exceeds the standard 3.68kW (16A) single-phase limit. You must submit a G99 application to your DNO and receive approval *before* connecting/exporting.")
 
 # --- AFFILIATE RECOMMENDATION SECTION ---
 st.markdown("---")
@@ -61,13 +70,13 @@ aff_col1, aff_col2, aff_col3 = st.columns(3)
 
 with aff_col1:
     st.markdown("### Hybrid Inverters")
-    st.markdown("Compatible with 48V LFP batteries and G98 compliance limits.")
+    st.markdown("Compatible with high-voltage strings, 48V/HV batteries, and G98 compliance limits.")
     st.markdown("[Shop Bimble Solar Inverters](https://www.bimblesolar.com/) "
                 "*(Affiliate link)*")
 
 with aff_col2:
     st.markdown("### LFP Battery Storage")
-    st.markdown("Modular 48V lithium iron phosphate rack batteries.")
+    st.markdown("Modular lithium iron phosphate rack batteries and DIY cells.")
     st.markdown("[Browse Second Life / New LFP Kits](https://www.bimblesolar.com/) "
                 "*(Affiliate link)*")
 
