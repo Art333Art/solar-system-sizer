@@ -28,7 +28,7 @@ inverter_max_mppt_v = st.sidebar.number_input("Inverter Max MPPT Voltage (V)", v
 inverter_max_mppt_a = st.sidebar.number_input("Inverter Max MPPT Current (A)", value=25.0, step=5.0, min_value=10.0, max_value=60.0, help="Max DC current rating per MPPT input.")
 
 st.sidebar.markdown("---")
-st.sidebar.header("2. Battery Chemistry & Storage")
+st.sidebar.header("2. Battery Specs & Chemistry")
 battery_chemistry = st.sidebar.selectbox(
     "Primary Battery Chemistry / Type",
     [
@@ -38,10 +38,13 @@ battery_chemistry = st.sidebar.selectbox(
         "Lead-Acid / AGM (50% Safe DoD - Deep Cycle Limit)"
     ]
 )
+battery_voltage = st.sidebar.number_input("Battery Bank Nominal Voltage (V)", value=48.0, step=12.0, min_value=12.0, max_value=800.0, help="Nominal voltage of your battery bank (e.g., 48V low-voltage or 400V high-voltage).")
+battery_max_current = st.sidebar.number_input("Battery Max Charge/Discharge Current (A)", value=100.0, step=10.0, min_value=10.0, max_value=300.0, help="Max continuous current rating of your BMS / battery bank.")
 
 st.sidebar.markdown("---")
-st.sidebar.header("3. Grid & Export Specs")
+st.sidebar.header("3. Grid & Inverter AC Specs")
 inverter_output_kw = st.sidebar.number_input("Inverter Max AC Output / Export Rating (kW)", value=3.68, step=0.25, min_value=1.0, max_value=15.0, help="Rated continuous AC output power for G98/G99 compliance checks.")
+inverter_max_charge_kw = st.sidebar.number_input("Inverter Max Battery Charge/Discharge Power (kW)", value=5.0, step=0.5, min_value=1.0, max_value=15.0, help="Max power the inverter can push into or pull from the battery.")
 
 # --- CALCULATIONS ---
 total_daily_energy = daily_usage + ev_commute
@@ -65,17 +68,18 @@ else:
     chem_help = "Calculated using a 50% safe DoD."
 
 required_storage = total_daily_energy * dod_factor
+calculated_battery_power_kw = (battery_voltage * battery_max_current) / 1000.0
 
 # Array Sizing & Current Multipliers for Parallel Strings
 total_panels = panels_in_series * strings_in_parallel
 total_array_kwp = (panel_wattage_wp * total_panels) / 1000.0
-total_string_isc = isc * strings_in_parallel  # Parallel strings sum current!
+total_string_isc = isc * strings_in_parallel  
 
 # Seasonal Estimates
 estimated_summer_daily = (total_array_kwp * 3.8)
 estimated_winter_daily = (total_array_kwp * 0.9)
 
-# Cold weather voltage check (Voc increases in cold weather, ~15% safety buffer)
+# Cold weather voltage check
 cold_voc = panels_in_series * voc * 1.15
 
 # --- RESULTS SECTION ---
@@ -86,10 +90,12 @@ col1, col2 = st.columns(2)
 with col1:
     st.metric("Total Daily Energy Required", f"{total_daily_energy:.2f} kWh")
     st.metric(f"Required {chem_label}", f"{required_storage:.2f} kWh", help=chem_help)
+    st.metric("Max Battery Power Capability", f"{calculated_battery_power_kw:.2f} kW", help=f"Calculated from {battery_voltage}V × {battery_max_current}A.")
 with col2:
     st.metric("Total Array Peak Power", f"{total_array_kwp:.2f} kWp", 
               help=f"Based on {total_panels} total panels ({panels_in_series} in series × {strings_in_parallel} in parallel).")
     st.metric("Selected Battery Profile", battery_chemistry.split(" - ")[0])
+    st.metric("Inverter Max AC Output", f"{inverter_output_kw:.2f} kW")
 
 # Seasonal Reality Check Section
 st.markdown("---")
@@ -112,7 +118,7 @@ else:
 if total_string_isc <= inverter_max_mppt_a:
     st.success(f"✅ **Array Current Safe**: Total parallel short-circuit current is {total_string_isc:.1f}A (Within the {inverter_max_mppt_a:.1f}A MPPT limit).")
 else:
-    st.error(f"⚠️ **DANGER**: Total parallel current ({total_string_isc:.1f}A) exceeds the inverter MPPT current limit ({inverter_max_mppt_a:.1f}A)! Reduce parallel strings or use a dual-MPPT input setup.")
+    st.error(f"⚠️ **DANGER**: Total parallel current ({total_string_isc:.1f}A) exceeds the inverter MPPT current limit ({inverter_max_mppt_a:.1f}A)! Reduce parallel strings.")
 
 # Dynamic G98 vs G99 Compliance Status
 if inverter_output_kw <= 3.68:
