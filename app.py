@@ -1,6 +1,7 @@
 import streamlit as st
 
 from solar_sizer import BatteryInputs, LoadInputs, SolarInputs, calculate_system
+from solar_sizer.affiliates import enabled_affiliate_offers
 
 st.set_page_config(page_title="UK Solar & Battery Sizer", page_icon="☀️", layout="wide")
 st.title("UK Solar & Battery System Sizer")
@@ -78,7 +79,9 @@ st.markdown("""
 - [MCS consumer guidance](https://mcscertified.com/consumers-communities/) — certified installers and consumer standards.
 - [GOV.UK smart charge point rules](https://www.gov.uk/guidance/regulations-electric-vehicle-smart-charge-points).
 """)
-st.subheader("Product recommendations — coming transparently")
-st.write("We are building a UK comparison based on electrical compatibility, warranty, support and total installed cost. No paid placement or affiliate relationship is currently claimed.")
-st.caption("Before launch, replace this section with an owned contact/lead flow. Future paid or affiliate placements must be labelled and must not affect safety results.")
+st.subheader("Product links")
+st.write("Commercial links never affect the calculator's engineering results or safety warnings.")
+for offer in enabled_affiliate_offers():
+    st.markdown(f"**{offer.title}** — {offer.description} [View products]({offer.url})")
+st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
 st.caption("Planning aid only. Results are estimates, not a quotation, electrical design, Building Regulations sign-off, MCS certificate or DNO approval.")

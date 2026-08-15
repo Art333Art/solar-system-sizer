@@ -2,6 +2,7 @@ import pytest
 
 from solar_sizer.calculations import calculate_cold_voc, calculate_system
 from solar_sizer.models import BatteryInputs, LoadInputs, SolarInputs
+from solar_sizer.affiliates import AFFILIATE_OFFERS, enabled_affiliate_offers
 
 
 def inputs(**overrides):
@@ -53,3 +54,10 @@ def test_g99_warning_is_based_on_16_amps_per_phase():
 def test_invalid_positive_values_are_rejected():
     with pytest.raises(ValueError):
         calculate_system(LoadInputs(0), inputs(), battery())
+
+
+def test_only_approved_amazon_affiliate_is_public():
+    enabled = enabled_affiliate_offers()
+    assert [offer.key for offer in enabled] == ["amazon_electricals"]
+    assert enabled[0].url == "https://link.amazon/B05z6RNmr"
+    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 2

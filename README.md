@@ -13,6 +13,10 @@ python -m compileall app.py solar_sizer
 
 This is an early-stage planning tool, not an electrical design, MCS calculation, DNO application or permission to connect. Use PVGIS monthly/hourly results and measured consumption for purchasing decisions.
 
+## Affiliate configuration
+
+Commercial offers are configured in `solar_sizer/affiliates.py`. Only entries with `enabled=True` are rendered. The genuine Amazon UK Associates link is enabled with its disclosure; the two applications awaiting approval remain configured but disabled. Confirm approval and replace each pending URL with its approved tracking URL before enabling it.
+
 ## Commercial launch checklist
 
 1. Replace the placeholder contact email with an owned inbox and add privacy/legal pages.
