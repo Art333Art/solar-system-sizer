@@ -56,8 +56,21 @@ def test_invalid_positive_values_are_rejected():
         calculate_system(LoadInputs(0), inputs(), battery())
 
 
-def test_only_approved_amazon_affiliate_is_public():
+def test_only_approved_amazon_affiliates_are_public():
     enabled = enabled_affiliate_offers()
-    assert [offer.key for offer in enabled] == ["amazon_electricals"]
+    assert [offer.key for offer in enabled] == [
+        "amazon_electricals", "amazon_ev_charger", "amazon_solar_tools",
+        "amazon_energy_monitor",
+    ]
     assert enabled[0].url == "https://link.amazon/B05z6RNmr"
-    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 2
+    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 3
+
+
+def test_affiliates_are_filtered_by_calculator_context():
+    assert [offer.key for offer in enabled_affiliate_offers({"monitoring"})] == ["amazon_energy_monitor"]
+    assert [offer.key for offer in enabled_affiliate_offers({"monitoring", "ev"})] == [
+        "amazon_ev_charger", "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in enabled_affiliate_offers({"advanced", "diy", "monitoring"})] == [
+        "amazon_electricals", "amazon_solar_tools", "amazon_energy_monitor",
+    ]

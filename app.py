@@ -8,7 +8,7 @@ from solar_sizer.consumer import calculate_consumer_result
 from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quote_interest
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 
-APP_RELEASE = "consumer-discovery-2026-08"
+APP_RELEASE = "conversion-ready-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -35,6 +35,7 @@ mode = st.radio("Calculator mode", ["Simple", "Advanced"], horizontal=True,
                 help="Simple uses homeowner-friendly assumptions. Advanced exposes datasheet and electrical limits.")
 if mode == "Advanced":
     record_event(st.session_state.events, "advanced_opened")
+recommendation_contexts = {"monitoring"}
 
 if mode == "Simple":
     st.subheader("Tell us about your home")
@@ -90,16 +91,19 @@ if mode == "Simple":
         max_panels=int(max_panels), wants_battery=wants_battery, import_tariff_p=import_tariff,
         export_tariff_p=export_tariff, offpeak_tariff_p=offpeak_tariff, installed_cost_gbp=installed_cost)
     record_event(st.session_state.events, "calculator_completed")
+    if ev_miles_week > 0:
+        recommendation_contexts.add("ev")
 
     st.subheader("Your headline estimate")
     r1, r2, r3 = st.columns(3)
     r1.metric("Recommended solar array", f"{consumer.array_kwp:.1f} kWp", f"about {consumer.panels} × 440 W panels")
-    r2.metric("Suggested inverter range", f"{consumer.inverter_low_kw:.1f}–{consumer.inverter_high_kw:.1f} kW")
-    r3.metric("Suggested battery range", f"{consumer.battery_low_kwh:.1f}–{consumer.battery_high_kwh:.1f} kWh" if wants_battery else "No battery selected")
+    r2.metric("Estimated annual generation", f"{consumer.annual_generation_kwh:,.0f} kWh/year")
+    r3.metric("Estimated annual saving", f"£{consumer.annual_saving_gbp:,.0f}")
     r4, r5, r6 = st.columns(3)
-    r4.metric("Estimated generation", f"{consumer.annual_generation_kwh:,.0f} kWh/year")
-    r5.metric("Estimated annual saving", f"£{consumer.annual_saving_gbp:,.0f}")
-    r6.metric("Simple payback", f"{consumer.payback_years:.1f} years" if consumer.payback_years else "Add installed cost")
+    r4.metric("Suggested battery", f"{consumer.battery_low_kwh:.1f}–{consumer.battery_high_kwh:.1f} kWh" if wants_battery else "No battery selected")
+    r5.metric("Simple payback", f"{consumer.payback_years:.1f} years" if consumer.payback_years else "Add installed cost")
+    r6.metric("Suggested inverter range", f"{consumer.inverter_low_kw:.1f}–{consumer.inverter_high_kw:.1f} kW")
+    st.caption("Annual saving is based on your entered tariffs and the assumptions described below; it is not a guaranteed bill reduction.")
 
     with st.expander("Energy and bill breakdown", expanded=True):
         rows = {
@@ -128,6 +132,7 @@ if mode == "Simple":
 - The inverter range is an initial DC/AC screening range. Equipment, phases, DNO route, clipping and backup loads require a competent designer.
 """)
 else:
+    recommendation_contexts.update({"advanced", "diy"})
     st.subheader("Advanced technical controls")
     with st.sidebar:
         home_kwh = st.number_input("Home electricity use (kWh/day)", 1.0, 100.0, 10.0, 0.5)
@@ -172,9 +177,12 @@ else:
         for check in result.checks:
             {"pass": st.success, "warn": st.warning, "fail": st.error}[check.level](f"**{check.title}:** {check.detail}")
     record_event(st.session_state.events, "calculator_completed")
+    if ev_miles > 0:
+        recommendation_contexts.add("ev")
 
 st.divider()
-st.subheader("Speak to an installer")
+st.subheader("Interested in an installer quote?")
+st.caption("No installer is connected yet. This interest form currently sends and stores nothing.")
 quote_open = st.checkbox("I'm interested in a future installer quote")
 if quote_open:
     record_event(st.session_state.events, "quote_opened")
@@ -199,27 +207,23 @@ for guide_title, guide_body in BUYING_GUIDES.items():
     with st.expander(guide_title):
         st.markdown(guide_body)
 
-if mode == "Advanced":
-    st.subheader("Contextual product link")
+recommended_offers = enabled_affiliate_offers(recommendation_contexts)
+if recommended_offers:
+    st.subheader("Relevant product links")
     st.write("Commercial links do not influence system sizing, compatibility checks or safety warnings.")
-    for offer in enabled_affiliate_offers():
+    for offer in recommended_offers:
         with st.expander(offer.title):
             st.warning(offer.description)
             st.markdown(f"[Open tracked Amazon UK listing](?out={offer.key})")
     st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
 
 outbound_key = st.query_params.get("out")
-enabled_by_key = {offer.key: offer for offer in enabled_affiliate_offers()}
+enabled_by_key = {offer.key: offer for offer in recommended_offers}
 if outbound_key in enabled_by_key:
     record_event(st.session_state.events, "affiliate_clicked")
     outbound_offer = enabled_by_key[outbound_key]
     st.info("Outbound Amazon click recorded anonymously in this session. No postcode, calculation or personal data was attached.")
     st.link_button("Continue to Amazon UK", outbound_offer.url, type="primary")
-
-with st.expander("Anonymous session activity"):
-    counts = {name: sum(event.name == name for event in st.session_state.events) for name in sorted({event.name for event in st.session_state.events})}
-    st.write(counts)
-    st.caption("These event names and times exist only in this Streamlit session and are not sent to an analytics service.")
 
 with st.expander("Methodology, sources, privacy and disclosures"):
     st.markdown("""

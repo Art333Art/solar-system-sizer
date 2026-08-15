@@ -4,7 +4,7 @@ Target: at least **£20 received**, not merely clicks or unqualified leads. Safe
 
 ## Recommended first offer
 
-Publish a short, curated “compatible equipment shortlist” after verifying every datasheet. Apply to the real [Amazon UK Associates programme](https://affiliate-program.amazon.co.uk/) for low-risk accessories such as energy monitors and EV cables; never recommend protection equipment or core PV hardware solely for commission. Add the required disclosure and only insert tagged links after the account is approved.
+Maintain a short, contextual equipment shortlist after verifying every destination and material claim. Use the approved [Amazon UK Associates programme](https://affiliate-program.amazon.co.uk/) links only with the required disclosure; never recommend protection equipment or core PV hardware solely for commission.
 
 In parallel, approach 10 UK MCS installers and two EV-charger vendors with a simple paid-lead pilot. Andersen publicly operates an affiliate programme for qualifying electrical professionals, but eligibility and terms must be confirmed before it is mentioned in-product. A single £20+ paid, consented installer lead is a more plausible first-month target than relying only on low-value retail commissions.
 
