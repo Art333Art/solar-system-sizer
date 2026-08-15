@@ -62,16 +62,16 @@ aff_col1, aff_col2, aff_col3 = st.columns(3)
 with aff_col1:
     st.markdown("### Hybrid Inverters")
     st.markdown("Compatible with 48V LFP batteries and G98 compliance limits.")
-    st.markdown("[Shop Bimble Solar Inverters](https://www.bimblesolar.com/)" \
-                " *(Affiliate link)*")
+    st.markdown("[Shop Bimble Solar Inverters](https://www.bimblesolar.com/) "
+                "*(Affiliate link)*")
 
 with aff_col2:
     st.markdown("### LFP Battery Storage")
     st.markdown("Modular 48V lithium iron phosphate rack batteries.")
-    st.markdown("[Browse Second Life / New LFP Kits](https://www.bimblesolar.com/)" \
-                " *(Affiliate link)*")
+    st.markdown("[Browse Second Life / New LFP Kits](https://www.bimblesolar.com/) "
+                "*(Affiliate link)*")
 
 with aff_col3:
     st.markdown("### Balance of System")
     st.markdown("16mm armoured cable, DC breakers, and consumer units.")
-    st.markdown("[Check Amazon UK Electricals](https://link.amazon/B05z6RNmr) *(Affiliate link)*"))
+    st.markdown("[Check Amazon UK Electricals](https://link.amazon/B05z6RNmr) *(Affiliate link)*")
