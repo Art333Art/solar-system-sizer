@@ -43,7 +43,7 @@ st.sidebar.markdown("---")
 st.sidebar.header("3. Grid & Export Specs")
 inverter_output_kw = st.sidebar.number_input("Inverter Max AC Output / Export Rating (kW)", value=3.68, step=0.25, min_value=1.0, max_value=15.0, help="Rated continuous AC output power for G98/G99 compliance checks.")
 
-# Calculations
+# --- CALCULATIONS ---
 total_daily_energy = daily_usage + ev_commute
 
 # Battery DoD sizing factor
@@ -78,7 +78,7 @@ estimated_winter_daily = (total_array_kwp * 0.9)
 # Cold weather voltage check (Voc increases in cold weather, ~15% safety buffer)
 cold_voc = panels_in_series * voc * 1.15
 
-# Results Section
+# --- RESULTS SECTION ---
 st.markdown("---")
 st.subheader("2. Results & Custom Storage Sizing")
 
@@ -123,7 +123,7 @@ else:
 # Balance of System Quick Guide
 st.markdown("---")
 st.subheader("5. Balance of System (BoS) Specs")
-st.info(f"💡 **Combined Parallel DC Current ($I_{sc}$)**: ~**{total_string_isc:.1f} A**. Ensure proper DC fusing/combiner boxes are used if combining more than 2 parallel strings, and use appropriately sized DC solar cables (min $6\text{mm}^2$).")
+st.info(f"💡 **Combined Parallel DC Current (Isc)**: ~**{total_string_isc:.1f} A**. Ensure proper DC fusing/combiner boxes are used if combining more than 2 parallel strings, and use appropriately sized DC solar cables (min 6mm²).")
 
 # --- AFFILIATE RECOMMENDATION SECTION ---
 st.markdown("---")
