@@ -52,4 +52,6 @@ def test_simple_and_advanced_generation_are_consistent_for_same_array_and_yield(
     advanced = calculate_system(LoadInputs(3000 / 365), SolarInputs(450, 10, 1, 40, 34, 14, 13,
         -0.25, -10, 600, 120, 550, 25, 32, 3.68, 1, 900, 14),
         BatteryInputs(12, 0.9, 0.94, 51.2, 100, 5))
+    assert simple.annual_demand_kwh == pytest.approx(advanced.total_load_kwh_day * 365)
+    assert simple.array_kwp == pytest.approx(advanced.array_kwp)
     assert simple.annual_generation_kwh == advanced.annual_generation_kwh

@@ -8,7 +8,7 @@ from solar_sizer.consumer import calculate_consumer_result
 from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quote_interest
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 
-APP_RELEASE = "conversion-ready-2026-08"
+APP_RELEASE = "dual-mode-workbench-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -133,49 +133,97 @@ if mode == "Simple":
 """)
 else:
     recommendation_contexts.update({"advanced", "diy"})
-    st.subheader("Advanced technical controls")
+    st.subheader("Advanced system-design workbench")
+    st.caption("Adjust the grouped controls in the left sidebar; every result updates immediately.")
     with st.sidebar:
-        home_kwh = st.number_input("Home electricity use (kWh/day)", 1.0, 100.0, 10.0, 0.5)
-        ev_miles = st.number_input("EV driving (miles/day)", 0.0, 300.0, 20.0, 1.0)
-        ev_efficiency = st.number_input("EV efficiency (miles/kWh)", 1.0, 6.0, 3.5, 0.1)
-        ev_charge_efficiency = st.slider("EV charging efficiency", 70, 100, 90) / 100
-        panel_wp = st.number_input("Panel power (Wp)", 200, 800, 440, 5)
-        series = st.number_input("Panels per series string", 1, 40, 10)
-        parallel = st.number_input("Parallel strings on this MPPT", 1, 10, 1)
-        voc = st.number_input("Panel Voc at STC (V)", 10.0, 100.0, 39.5, 0.1)
-        vmp = st.number_input("Panel Vmp at STC (V)", 10.0, 100.0, 33.2, 0.1)
-        isc = st.number_input("Panel Isc at STC (A)", 1.0, 30.0, 14.0, 0.1)
-        imp = st.number_input("Panel Imp at STC (A)", 1.0, 30.0, 13.25, 0.1)
-        voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01)
-        min_temp = st.number_input("Design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0)
-        inverter_kw = st.number_input("Rated AC output (kW)", 0.5, 50.0, 3.68, 0.1)
-        phases = st.selectbox("Grid phases", [1, 3])
-        max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0)
-        mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0)
-        mppt_max = st.number_input("MPPT maximum voltage (V)", 50.0, 1500.0, 550.0, 10.0)
-        max_imp = st.number_input("Maximum operating current/MPPT (A)", 1.0, 100.0, 25.0, 1.0)
-        max_isc = st.number_input("Maximum short-circuit current/MPPT (A)", 1.0, 150.0, 32.0, 1.0)
-        specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0)
-        pvgis_losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14,
-            help="Recorded with the manual yield assumption; do not deduct it again from a PVGIS AC-yield result.")
-        autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12)
-        usable = st.slider("Usable battery fraction (%)", 20, 100, 90) / 100
-        discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94) / 100
-        battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0)
-        battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0)
-        battery_inverter_kw = st.number_input("Inverter battery power limit (kW)", 0.1, 100.0, 5.0, 0.1)
+        st.header("Advanced controls")
+        with st.expander("1. Demand and EV", expanded=True):
+            home_kwh = st.number_input("Home electricity use (kWh/day)", 1.0, 100.0, 10.0, 0.5)
+            ev_miles = st.number_input("EV driving (miles/day)", 0.0, 300.0, 20.0, 1.0)
+            ev_efficiency = st.number_input("EV efficiency (miles/kWh)", 1.0, 6.0, 3.5, 0.1)
+            ev_charge_efficiency = st.slider("EV charging efficiency", 70, 100, 90) / 100
+        with st.expander("2. PV module and strings", expanded=True):
+            panel_wp = st.number_input("Panel power (Wp)", 200, 800, 440, 5)
+            series = st.number_input("Panels per series string", 1, 40, 10)
+            parallel = st.number_input("Parallel strings on this MPPT", 1, 10, 1)
+            voc = st.number_input("Panel Voc at STC (V)", 10.0, 100.0, 39.5, 0.1)
+            vmp = st.number_input("Panel Vmp at STC (V)", 10.0, 100.0, 33.2, 0.1)
+            isc = st.number_input("Panel Isc at STC (A)", 1.0, 30.0, 14.0, 0.1)
+            imp = st.number_input("Panel Imp at STC (A)", 1.0, 30.0, 13.25, 0.1)
+            voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01)
+            min_temp = st.number_input("Design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0)
+        with st.expander("3. Inverter and MPPT", expanded=True):
+            inverter_kw = st.number_input("Rated AC output (kW)", 0.5, 50.0, 3.68, 0.1)
+            max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0)
+            mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0)
+            mppt_max = st.number_input("MPPT maximum operating voltage (V)", 50.0, 1500.0, 550.0, 10.0)
+            max_imp = st.number_input("Maximum operating current/MPPT (A)", 1.0, 100.0, 25.0, 1.0)
+            max_isc = st.number_input("Maximum short-circuit current/MPPT (A)", 1.0, 150.0, 32.0, 1.0)
+            battery_inverter_kw = st.number_input("Inverter battery charge/discharge limit (kW)", 0.1, 100.0, 5.0, 0.1)
+        with st.expander("4. Battery", expanded=False):
+            chemistry = st.selectbox("Battery chemistry", ["LFP", "NMC", "Lead-acid / AGM", "Other / manufacturer-defined"])
+            st.caption("Chemistry is recorded for context; use the selected battery datasheet for usable capacity and current limits.")
+            autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12)
+            usable = st.slider("Usable battery fraction (%)", 20, 100, 90) / 100
+            discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94) / 100
+            battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0)
+            battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0)
+        with st.expander("5. Grid, yield and economics", expanded=False):
+            phases = st.selectbox("Grid phases", [1, 3])
+            export_limited = st.checkbox("Export limitation scheme proposed")
+            export_limit_kw = st.number_input("Proposed export limit (kW)", 0.0, 50.0, 3.68, 0.1) if export_limited else inverter_kw
+            specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0)
+            pvgis_losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14,
+                help="Recorded with the manual yield assumption; do not deduct it again from a PVGIS AC-yield result.")
+            advanced_import_tariff = st.number_input("Import tariff (p/kWh)", 0.1, 100.0, 25.0, 0.5)
+            advanced_export_tariff = st.number_input("Export tariff (p/kWh)", 0.0, 100.0, 15.0, 0.5)
+            advanced_has_offpeak = st.checkbox("Model off-peak battery charging")
+            advanced_offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if advanced_has_offpeak else None
+            advanced_has_cost = st.checkbox("Include installed cost for payback")
+            advanced_cost = st.number_input("Installed system cost (£)", 100.0, 100000.0, 10000.0, 100.0) if advanced_has_cost else None
     result = calculate_system(LoadInputs(home_kwh, ev_miles, ev_efficiency, ev_charge_efficiency),
         SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
             mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, pvgis_losses),
         BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a, battery_inverter_kw))
-    cols = st.columns(4)
-    cols[0].metric("Demand", f"{result.total_load_kwh_day:.1f} kWh/day")
-    cols[1].metric("PV array", f"{result.array_kwp:.2f} kWp")
-    cols[2].metric("Annual generation", f"{result.annual_generation_kwh:,.0f} kWh")
-    cols[3].metric("Battery", f"{result.battery_nominal_kwh:.1f} kWh nominal")
-    with st.expander("Engineering checks", expanded=True):
+    advanced_finance = calculate_consumer_result(household_kwh=home_kwh * 365, ev_miles_year=ev_miles * 365,
+        ev_miles_per_kwh=ev_efficiency, ev_charge_efficiency=ev_charge_efficiency,
+        specific_yield=specific_yield, panel_wp=panel_wp, max_panels=series * parallel,
+        wants_battery=True, import_tariff_p=advanced_import_tariff, export_tariff_p=advanced_export_tariff,
+        offpeak_tariff_p=advanced_offpeak_tariff, installed_cost_gbp=advanced_cost,
+        forced_array_kwp=result.array_kwp)
+
+    with st.container(border=True):
+        st.markdown("#### System overview")
+        cols = st.columns(4)
+        cols[0].metric("Array", f"{result.array_kwp:.2f} kWp", f"{series * parallel} panels")
+        cols[1].metric("Annual generation", f"{result.annual_generation_kwh:,.0f} kWh", f"average {result.average_generation_kwh_day:.1f} kWh/day")
+        cols[2].metric("Battery target", f"{result.battery_nominal_kwh:.1f} kWh nominal", chemistry)
+        cols[3].metric("Battery capability", f"≤ {result.battery_continuous_kw:.1f} kW", "battery/BMS and inverter limit")
+    with st.container(border=True):
+        st.markdown("#### String and inverter checks")
+        check_cols = st.columns(4)
+        check_cols[0].metric("Cold string Voc", f"{result.cold_string_voc:.0f} V")
+        check_cols[1].metric("Nominal string Vmp", f"{result.string_vmp:.0f} V")
+        check_cols[2].metric("Array Imp / Isc", f"{result.array_imp:.1f} / {result.array_isc:.1f} A")
+        check_cols[3].metric("DC/AC ratio", f"{result.dc_ac_ratio:.2f}")
         for check in result.checks:
             {"pass": st.success, "warn": st.warning, "fail": st.error}[check.level](f"**{check.title}:** {check.detail}")
+    with st.container(border=True):
+        st.markdown("#### Energy flow and economics")
+        flow_cols = st.columns(4)
+        flow_cols[0].metric("Estimated self-use", f"{advanced_finance.self_consumed_kwh:,.0f} kWh/year")
+        flow_cols[1].metric("Estimated grid import", f"{advanced_finance.grid_import_kwh:,.0f} kWh/year")
+        flow_cols[2].metric("Estimated export", f"{advanced_finance.export_kwh:,.0f} kWh/year")
+        flow_cols[3].metric("Estimated saving", f"£{advanced_finance.annual_saving_gbp:,.0f}/year")
+        st.caption("Savings use the entered tariffs and an annual self-consumption heuristic; half-hourly modelling is required for a firm forecast.")
+        if advanced_finance.payback_years:
+            st.metric("Simple payback", f"{advanced_finance.payback_years:.1f} years")
+    with st.container(border=True):
+        st.markdown("#### Grid and export route")
+        if export_limited:
+            st.info(f"Proposed export limit: {export_limit_kw:.2f} kW. An export limitation scheme requires appropriate design/commissioning and does not automatically change the G98/G99 application route.")
+        else:
+            st.write("No export limitation scheme selected; assess the complete generating installation against the DNO connection route.")
     record_event(st.session_state.events, "calculator_completed")
     if ev_miles > 0:
         recommendation_contexts.add("ev")
