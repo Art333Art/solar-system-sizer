@@ -1,152 +1,84 @@
 import streamlit as st
 
-# Page Configuration
-st.set_page_config(
-    page_title="UK DIY Solar & Battery System Sizer",
-    page_icon="⚡",
-    layout="wide"
+from solar_sizer import BatteryInputs, LoadInputs, SolarInputs, calculate_system
+
+st.set_page_config(page_title="UK Solar & Battery Sizer", page_icon="☀️", layout="wide")
+st.title("UK Solar & Battery System Sizer")
+st.caption("Early-stage feasibility checks for UK homes — not an electrical design or permission to connect.")
+
+with st.sidebar:
+    st.header("Your home and EV")
+    home_kwh = st.number_input("Home electricity use (kWh/day)", 1.0, 100.0, 10.0, 0.5)
+    ev_miles = st.number_input("EV driving (miles/day)", 0.0, 300.0, 20.0, 1.0)
+    ev_efficiency = st.number_input("EV efficiency (miles/kWh at battery)", 1.0, 6.0, 3.5, 0.1)
+    ev_charge_efficiency = st.slider("EV charging efficiency", 70, 100, 90) / 100
+    st.header("PV array")
+    panel_wp = st.number_input("Panel power (Wp)", 200, 800, 440, 5)
+    series = st.number_input("Panels in each series string", 1, 40, 10)
+    parallel = st.number_input("Parallel strings on this MPPT", 1, 10, 1)
+    with st.expander("Module electrical data"):
+        voc = st.number_input("Voc at STC (V)", 10.0, 100.0, 39.5, 0.1)
+        vmp = st.number_input("Vmp at STC (V)", 10.0, 100.0, 33.2, 0.1)
+        isc = st.number_input("Isc at STC (A)", 1.0, 30.0, 14.0, 0.1)
+        imp = st.number_input("Imp at STC (A)", 1.0, 30.0, 13.25, 0.1)
+        voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01)
+        min_temp = st.number_input("Site design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0)
+    st.header("Inverter and grid")
+    inverter_kw = st.number_input("Rated AC output (kW)", 0.5, 50.0, 3.68, 0.1)
+    phases = st.selectbox("Grid connection", [1, 3], format_func=lambda n: "Single phase" if n == 1 else "Three phase")
+    with st.expander("Inverter DC/MPPT limits"):
+        max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0)
+        mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0)
+        mppt_max = st.number_input("MPPT maximum voltage (V)", 50.0, 1500.0, 550.0, 10.0)
+        max_imp = st.number_input("Maximum operating current per MPPT (A)", 1.0, 100.0, 25.0, 1.0)
+        max_isc = st.number_input("Maximum short-circuit current per MPPT (A)", 1.0, 150.0, 32.0, 1.0)
+    st.header("Yield and battery")
+    specific_yield = st.number_input("PVGIS annual yield (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0,
+        help="Use PVGIS for the location, roof slope and orientation. Its result already includes the entered system loss.")
+    losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14,
+        help="Recorded for your assumptions; do not deduct it again from the PVGIS AC-yield result.")
+    autonomy = st.slider("Battery coverage target (hours of average demand)", 1, 48, 12)
+    usable = st.slider("Usable battery fraction (%)", 20, 100, 90) / 100
+    discharge_efficiency = st.slider("Battery-to-AC discharge efficiency (%)", 70, 100, 94) / 100
+    battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0)
+    battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0)
+    battery_inverter_kw = st.number_input("Inverter battery power limit (kW)", 0.1, 100.0, 5.0, 0.1)
+
+result = calculate_system(
+    LoadInputs(home_kwh, ev_miles, ev_efficiency, ev_charge_efficiency),
+    SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
+        mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, losses),
+    BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a, battery_inverter_kw),
 )
 
-# App Title & Header
-st.title("UK DIY Solar & Battery System Sizer")
-st.markdown("Your all-in-one calculator for UK hybrid inverter limits, string voltage/current safety, seasonal solar yields, and custom battery storage sizing.")
+cols = st.columns(4)
+cols[0].metric("Total demand", f"{result.total_load_kwh_day:.1f} kWh/day", f"EV {result.ev_kwh_day:.1f} kWh/day")
+cols[1].metric("PV array", f"{result.array_kwp:.2f} kWp", f"{series * parallel} panels")
+cols[2].metric("Indicative annual generation", f"{result.annual_generation_kwh:,.0f} kWh", f"avg {result.average_generation_kwh_day:.1f} kWh/day")
+cols[3].metric("Indicative battery", f"{result.battery_nominal_kwh:.1f} kWh nominal", f"continuous ≤ {result.battery_continuous_kw:.1f} kW")
+st.info("Annual averages do not prove winter self-sufficiency. Use PVGIS monthly/hourly output and half-hourly consumption before buying equipment.")
+st.subheader("Engineering checks")
+for check in result.checks:
+    message = f"**{check.title}:** {check.detail}"
+    {"pass": st.success, "warn": st.warning, "fail": st.error}[check.level](message)
 
-# Sidebar Inputs
-st.sidebar.header("1. System & Load Inputs")
-daily_usage = st.sidebar.slider("Daily Home Usage (kWh)", 5.0, 30.0, 10.0, 0.5)
-ev_commute = st.sidebar.slider("EV Commute / Daily Charging (kWh)", 0.0, 30.0, 3.5, 0.5)
+with st.expander("What this battery estimate means"):
+    st.write(f"It covers {autonomy} hours of average combined demand, allowing for {usable:.0%} usable capacity and {discharge_efficiency:.0%} battery-to-AC efficiency. It does not model peak loads, tariffs, backup circuits, seasonal generation or scheduling.")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Solar Array Configuration")
-panel_wattage_wp = st.sidebar.slider("Individual Panel Rating (Wp)", 300, 550, 400, 10)
-panels_in_series = st.sidebar.slider("Panels in Series (Per String)", 4, 24, 10, 1)
-strings_in_parallel = st.sidebar.slider("Strings in Parallel", 1, 4, 1, 1, help="Number of parallel strings connected to the MPPT input.")
-voc = st.sidebar.slider("Panel Open Circuit Voltage (Voc)", 30.0, 60.0, 37.0, 0.5)
-isc = st.sidebar.slider("Panel Short Circuit Current (Isc)", 9.0, 15.0, 13.5, 0.1, help="Max panel current before parallel multiplication.")
-
-inverter_max_mppt_v = st.sidebar.number_input("Inverter Max MPPT Voltage (V)", value=600.0, step=25.0, min_value=100.0, max_value=1000.0)
-inverter_max_mppt_a = st.sidebar.number_input("Inverter Max MPPT Current (A)", value=25.0, step=5.0, min_value=10.0, max_value=60.0, help="Max DC current rating per MPPT input.")
-
-st.sidebar.markdown("---")
-st.sidebar.header("2. Battery Specs & Chemistry")
-battery_chemistry = st.sidebar.selectbox(
-    "Primary Battery Chemistry / Type",
-    [
-        "New LFP (Lithium Iron Phosphate - 80% Safe DoD)",
-        "Second-Life / Salvaged LFP (75% Safe DoD)",
-        "NMC / High-Voltage EV Packs (65% Safe DoD)",
-        "Lead-Acid / AGM (50% Safe DoD - Deep Cycle Limit)"
-    ]
-)
-battery_voltage = st.sidebar.number_input("Battery Bank Nominal Voltage (V)", value=48.0, step=12.0, min_value=12.0, max_value=800.0, help="Nominal voltage of your battery bank (e.g., 48V low-voltage or 400V high-voltage).")
-battery_max_current = st.sidebar.number_input("Battery Max Charge/Discharge Current (A)", value=100.0, step=10.0, min_value=10.0, max_value=300.0, help="Max continuous current rating of your BMS / battery bank.")
-
-st.sidebar.markdown("---")
-st.sidebar.header("3. Grid & Inverter AC Specs")
-inverter_output_kw = st.sidebar.number_input("Inverter Max AC Output / Export Rating (kW)", value=3.68, step=0.25, min_value=1.0, max_value=15.0, help="Rated continuous AC output power for G98/G99 compliance checks.")
-inverter_max_charge_kw = st.sidebar.number_input("Inverter Max Battery Charge/Discharge Power (kW)", value=5.0, step=0.5, min_value=1.0, max_value=15.0, help="Max power the inverter can push into or pull from the battery.")
-
-# --- CALCULATIONS ---
-total_daily_energy = daily_usage + ev_commute
-
-# Battery DoD sizing factor
-if "New LFP" in battery_chemistry:
-    dod_factor = 1.25
-    chem_label = "New LFP Storage Capacity"
-    chem_help = "Calculated using an 80% safe Depth of Discharge (DoD)."
-elif "Second-Life" in battery_chemistry:
-    dod_factor = 1.33
-    chem_label = "Second-Life LFP Storage Capacity"
-    chem_help = "Calculated using a 75% safe DoD."
-elif "NMC" in battery_chemistry:
-    dod_factor = 1.54
-    chem_label = "NMC / EV Pack Storage Capacity"
-    chem_help = "Calculated using a 65% safe DoD."
-else:
-    dod_factor = 2.00
-    chem_label = "Lead-Acid / AGM Storage Capacity"
-    chem_help = "Calculated using a 50% safe DoD."
-
-required_storage = total_daily_energy * dod_factor
-calculated_battery_power_kw = (battery_voltage * battery_max_current) / 1000.0
-
-# Array Sizing & Current Multipliers for Parallel Strings
-total_panels = panels_in_series * strings_in_parallel
-total_array_kwp = (panel_wattage_wp * total_panels) / 1000.0
-total_string_isc = isc * strings_in_parallel  
-
-# Seasonal Estimates
-estimated_summer_daily = (total_array_kwp * 3.8)
-estimated_winter_daily = (total_array_kwp * 0.9)
-
-# Cold weather voltage check
-cold_voc = panels_in_series * voc * 1.15
-
-# --- RESULTS SECTION ---
-st.markdown("---")
-st.subheader("2. Results & Custom Storage Sizing")
-
-col1, col2 = st.columns(2)
-with col1:
-    st.metric("Total Daily Energy Required", f"{total_daily_energy:.2f} kWh")
-    st.metric(f"Required {chem_label}", f"{required_storage:.2f} kWh", help=chem_help)
-    st.metric("Max Battery Power Capability", f"{calculated_battery_power_kw:.2f} kW", help=f"Calculated from {battery_voltage}V × {battery_max_current}A.")
-with col2:
-    st.metric("Total Array Peak Power", f"{total_array_kwp:.2f} kWp", 
-              help=f"Based on {total_panels} total panels ({panels_in_series} in series × {strings_in_parallel} in parallel).")
-    st.metric("Selected Battery Profile", battery_chemistry.split(" - ")[0])
-    st.metric("Inverter Max AC Output", f"{inverter_output_kw:.2f} kW")
-
-# Seasonal Reality Check Section
-st.markdown("---")
-st.subheader("3. Seasonal Solar Yield Reality Check (UK)")
-season_col1, season_col2 = st.columns(2)
-with season_col1:
-    st.info(f"☀️ **Estimated Summer Daily Generation (~June)**: ~**{estimated_summer_daily:.1f} kWh / day**\n\n*Abundant generation; highly likely to fill your battery and export surplus.*")
-with season_col2:
-    st.warning(f"❄️ **Estimated Winter Daily Generation (~December)**: ~**{estimated_winter_daily:.1f} kWh / day**\n\n*Heavy drop-off. Your battery will likely need cheap off-peak grid top-ups.*")
-
-st.markdown("---")
-st.subheader("4. Hardware & Grid Compliance")
-
-# Voltage & Current Safety Checks
-if cold_voc <= inverter_max_mppt_v:
-    st.success(f"✅ **String Voltage Safe**: Cold weather string Voc is {cold_voc:.1f}V (Within the {inverter_max_mppt_v:.1f}V inverter limit).")
-else:
-    st.error(f"⚠️ **DANGER**: Cold weather string Voc is {cold_voc:.1f}V, exceeding the {inverter_max_mppt_v:.1f}V limit! Reduce panels in series.")
-
-if total_string_isc <= inverter_max_mppt_a:
-    st.success(f"✅ **Array Current Safe**: Total parallel short-circuit current is {total_string_isc:.1f}A (Within the {inverter_max_mppt_a:.1f}A MPPT limit).")
-else:
-    st.error(f"⚠️ **DANGER**: Total parallel current ({total_string_isc:.1f}A) exceeds the inverter MPPT current limit ({inverter_max_mppt_a:.1f}A)! Reduce parallel strings.")
-
-# Dynamic G98 vs G99 Compliance Status
-if inverter_output_kw <= 3.68:
-    st.success(f"✅ **G98 Eligible ({inverter_output_kw} kW AC)**: Standard UK single-phase 'Fit & Inform' rules apply. No prior DNO approval needed.")
-else:
-    st.warning(f"⚠️ **G99 Approval Required ({inverter_output_kw} kW AC)**: Exceeds the standard 3.68kW single-phase limit. DNO approval required *before* commissioning.")
-
-# Balance of System Quick Guide
-st.markdown("---")
-st.subheader("5. Balance of System (BoS) Specs")
-st.info(f"💡 **Combined Parallel DC Current (Isc)**: ~**{total_string_isc:.1f} A**. Ensure proper DC fusing/combiner boxes are used if combining more than 2 parallel strings, and use appropriately sized DC solar cables (min 6mm²).")
-
-# --- AFFILIATE RECOMMENDATION SECTION ---
-st.markdown("---")
-st.subheader("6. Recommended UK DIY Hardware & Components")
-aff_col1, aff_col2, aff_col3 = st.columns(3)
-
-with aff_col1:
-    st.markdown("### Hybrid Inverters")
-    st.markdown("Compatible with high-voltage strings, dual MPPTs, and G98 limits.")
-    st.markdown("[Shop Bimble Solar Inverters](https://www.bimblesolar.com/) *(Affiliate link)*")
-
-with aff_col2:
-    st.markdown("### Battery Storage Kits")
-    st.markdown("Modular lithium iron phosphate rack batteries and DIY cells.")
-    st.markdown("[Browse Second Life / New LFP Kits](https://www.bimblesolar.com/) *(Affiliate link)*")
-
-with aff_col3:
-    st.markdown("### Balance of System")
-    st.markdown("Combiner boxes, DC breakers, and 16mm armoured cable.")
-    st.markdown("[Check Amazon UK Electricals](https://link.amazon/B05z6RNmr) *(Affiliate link)*")
+st.subheader("Before you buy")
+st.markdown("""
+- Ask an MCS-certified installer/designer to confirm roof structure, shading, fire access, cable routes, isolation, earthing, protection, inverter compatibility and the DNO process.
+- Verify module and inverter datasheets together. Never mate incompatible DC connectors or work on live PV strings; daylight PV cannot simply be switched off.
+- A domestic EV charge point is a dedicated electrical installation. Choose a compliant smart charger with load management and solar-diversion support where useful.
+""")
+st.subheader("Independent tools and guidance")
+st.markdown("""
+- [PVGIS generation modelling](https://re.jrc.ec.europa.eu/pvg_tools/en/) — location, slope and orientation-based estimates.
+- [ENA connection guidance](https://www.energynetworks.org/industry/engineering-and-technical-programmes/connecting-to-the-networks) — G98/G99 and equipment registers.
+- [MCS consumer guidance](https://mcscertified.com/consumers-communities/) — certified installers and consumer standards.
+- [GOV.UK smart charge point rules](https://www.gov.uk/guidance/regulations-electric-vehicle-smart-charge-points).
+""")
+st.subheader("Product recommendations — coming transparently")
+st.write("We are building a UK comparison based on electrical compatibility, warranty, support and total installed cost. No paid placement or affiliate relationship is currently claimed.")
+st.caption("Before launch, replace this section with an owned contact/lead flow. Future paid or affiliate placements must be labelled and must not affect safety results.")
+st.caption("Planning aid only. Results are estimates, not a quotation, electrical design, Building Regulations sign-off, MCS certificate or DNO approval.")
