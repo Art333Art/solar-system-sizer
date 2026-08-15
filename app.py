@@ -3,11 +3,15 @@ import streamlit as st
 from solar_sizer import BatteryInputs, LoadInputs, SolarInputs, calculate_system
 from solar_sizer.affiliates import enabled_affiliate_offers
 from solar_sizer.analytics import record_event
+from solar_sizer.content import BUYING_GUIDES
 from solar_sizer.consumer import calculate_consumer_result
 from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quote_interest
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 
-st.set_page_config(page_title="UK Solar & Battery Sizer", page_icon="☀️", layout="wide")
+APP_RELEASE = "consumer-discovery-2026-08"
+
+st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
+    menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -25,7 +29,8 @@ if "events" not in st.session_state:
 record_event(st.session_state.events, "calculator_started")
 
 st.title("UK Solar & Battery System Sizer")
-st.caption("An independent early-stage estimate for UK homes — not an installer quotation or final electrical design.")
+st.markdown("Estimate how many solar panels you may need, a sensible battery range, annual generation, grid import/export, savings and payback using local UK solar data.")
+st.caption("Free independent early-stage estimate — not an installer quotation or final electrical design.")
 mode = st.radio("Calculator mode", ["Simple", "Advanced"], horizontal=True,
                 help="Simple uses homeowner-friendly assumptions. Advanced exposes datasheet and electrical limits.")
 if mode == "Advanced":
@@ -189,11 +194,32 @@ if quote_open:
             record_event(st.session_state.events, "quote_submitted")
             st.success("Validated. Nothing was stored or sent because the lead service is not yet enabled.")
 
-st.subheader("Relevant product links")
-st.write("Commercial links do not influence system sizing, compatibility checks or safety warnings.")
-for offer in enabled_affiliate_offers():
-    st.markdown(f"**{offer.title}** — {offer.description} [View products]({offer.url})")
-st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
+st.subheader("Learn before you buy")
+for guide_title, guide_body in BUYING_GUIDES.items():
+    with st.expander(guide_title):
+        st.markdown(guide_body)
+
+if mode == "Advanced":
+    st.subheader("Contextual product link")
+    st.write("Commercial links do not influence system sizing, compatibility checks or safety warnings.")
+    for offer in enabled_affiliate_offers():
+        with st.expander(offer.title):
+            st.warning(offer.description)
+            st.markdown(f"[Open tracked Amazon UK listing](?out={offer.key})")
+    st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
+
+outbound_key = st.query_params.get("out")
+enabled_by_key = {offer.key: offer for offer in enabled_affiliate_offers()}
+if outbound_key in enabled_by_key:
+    record_event(st.session_state.events, "affiliate_clicked")
+    outbound_offer = enabled_by_key[outbound_key]
+    st.info("Outbound Amazon click recorded anonymously in this session. No postcode, calculation or personal data was attached.")
+    st.link_button("Continue to Amazon UK", outbound_offer.url, type="primary")
+
+with st.expander("Anonymous session activity"):
+    counts = {name: sum(event.name == name for event in st.session_state.events) for name in sorted({event.name for event in st.session_state.events})}
+    st.write(counts)
+    st.caption("These event names and times exist only in this Streamlit session and are not sent to an analytics service.")
 
 with st.expander("Methodology, sources, privacy and disclosures"):
     st.markdown("""
@@ -204,4 +230,5 @@ with st.expander("Methodology, sources, privacy and disclosures"):
 - A postcode is sent to Postcodes.io for coordinates; coordinates and roof inputs are sent to the European Commission PVGIS service. Quote details are not persisted or transmitted. Anonymous events contain only an event name and time in this browser session.
 - Privacy policy, cookie notice, terms and commercial disclosure require final owner/legal review before public deployment.
 """)
+    st.caption(f"Release: {APP_RELEASE}")
 st.warning("Final electrical design, structural suitability, product compatibility, Building Regulations work, DNO approval and installation must be verified by competent professionals.")

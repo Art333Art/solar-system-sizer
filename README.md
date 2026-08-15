@@ -2,6 +2,10 @@
 
 A consumer-first Streamlit feasibility calculator for UK domestic solar PV, batteries, inverters and EV demand. Simple mode uses cached postcode and PVGIS data; Advanced mode retains datasheet, MPPT, grid and manual-yield controls.
 
+**Live app:** [UK Solar & Battery System Sizer](https://share.streamlit.io/art333art/solar-system-sizer/main/app.py)
+
+The live Streamlit Community Cloud deployment resolves to this repository's `main` branch and `app.py`. The in-app release marker can be used to confirm an automatic deployment after a push.
+
 ## Run and test
 
 ```powershell

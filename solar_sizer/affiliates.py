@@ -17,8 +17,8 @@ class AffiliateOffer:
 AFFILIATE_OFFERS = (
     AffiliateOffer(
         key="amazon_electricals",
-        title="Electrical monitoring and accessories",
-        description="Browse relevant electrical products on Amazon UK.",
+        title="16 mm² three-core SWA cable listing",
+        description="Only relevant when this exact cable type and size has already been specified by a competent designer. This calculator does not size AC cables.",
         url="https://link.amazon/B05z6RNmr",
         enabled=True,
         network="Amazon UK Associates",
