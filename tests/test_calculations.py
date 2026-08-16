@@ -93,9 +93,13 @@ def test_affiliates_are_filtered_by_calculator_context():
 
 def test_context_controls_prominence_while_mode_controls_discovery():
     simple = affiliate_products_for_page("Simple", {"monitoring"})
-    assert [offer.product_id for offer in simple] == ["amazon_energy_monitor", "amazon_ev_charger"]
+    assert [offer.product_id for offer in simple] == [
+        "amazon_energy_monitor", "amazon_ev_charger", "amazon_solar_tools", "amazon_electricals",
+    ]
     simple_ev = affiliate_products_for_page("Simple", {"monitoring", "ev"})
-    assert [offer.product_id for offer in simple_ev] == ["amazon_ev_charger", "amazon_energy_monitor"]
+    assert [offer.product_id for offer in simple_ev] == [
+        "amazon_ev_charger", "amazon_energy_monitor", "amazon_solar_tools", "amazon_electricals",
+    ]
     advanced = affiliate_products_for_page("Advanced", {"advanced", "diy", "monitoring"})
     assert [offer.product_id for offer in advanced] == [
         "amazon_solar_tools", "amazon_electricals", "amazon_energy_monitor", "amazon_ev_charger",
@@ -104,12 +108,9 @@ def test_context_controls_prominence_while_mode_controls_discovery():
     assert "amazon_ev_cable" not in {offer.product_id for offer in advanced}
 
 
-def test_swa_remains_available_only_in_advanced_diy_context():
-    assert "amazon_electricals" not in {
-        offer.product_id for offer in affiliate_products_for_page("Advanced", {"advanced", "monitoring"})
-    }
+def test_swa_remains_available_with_verified_url():
     swa = next(
-        offer for offer in affiliate_products_for_page("Advanced", {"advanced", "diy", "monitoring"})
+        offer for offer in affiliate_products_for_page("Simple", {"monitoring"})
         if offer.product_id == "amazon_electricals"
     )
     assert swa.url == "https://link.amazon/B05z6RNmr"

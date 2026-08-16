@@ -99,9 +99,10 @@ def affiliate_products_for_page(mode: str, contexts: set[str]) -> tuple[Affiliat
         offer.product_id: offer for offer in enabled_affiliate_offers()
         if offer.network == "Amazon UK Associates"
     }
-    visible_ids = {"amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor"}
-    if mode == "Advanced" and {"advanced", "diy"} <= contexts:
-        visible_ids.update({"amazon_solar_tools", "amazon_electricals"})
+    visible_ids = {
+        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
+        "amazon_solar_tools", "amazon_electricals",
+    }
 
     priority: list[str] = []
     if "ev" in contexts:

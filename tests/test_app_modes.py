@@ -58,13 +58,13 @@ def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
     assert simple_markdown.count("**OWON 80A 2-clamp bi-directional energy monitor**") == 1
     assert simple_markdown.count("**VORSPRUNG Alpha Max 7.4 kW EV charger**") == 1
     assert "bokman Type 2 EV cable" not in simple_page
-    assert "SOMELINE solar crimping kit" not in simple_page
-    assert "16 mm² 3-core SWA cable" not in simple_page
+    assert "SOMELINE solar crimping kit" in simple_page
+    assert "16 mm² 3-core SWA cable" in simple_page
     assert "Anonymous session activity" not in simple_page
     assert "recorded anonymously" not in simple_page
     assert "tracked Amazon UK listing" not in simple_page
-    assert sum("[Check on Amazon UK →]" in value for value in simple_markdown) == 2
-    for key in ("amazon_ev_charger", "amazon_energy_monitor"):
+    assert sum("[Check on Amazon UK →]" in value for value in simple_markdown) == 4
+    for key in ("amazon_ev_charger", "amazon_energy_monitor", "amazon_solar_tools", "amazon_electricals"):
         assert f"?out={key}" in simple_page
     disclosure = "As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you."
     assert [item.value for item in app.caption].count(disclosure) == 1
@@ -79,8 +79,8 @@ def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
     assert "VORSPRUNG Alpha Max 7.4 kW EV charger" in advanced_page
     assert "OWON 80A 2-clamp bi-directional energy monitor" in advanced_page
     assert "bokman Type 2 EV cable" not in advanced_page
-    assert "16 mm² 3-core SWA cable" not in advanced_page
-    assert "SOMELINE solar crimping kit" not in advanced_page
+    assert "16 mm² 3-core SWA cable" in advanced_page
+    assert "SOMELINE solar crimping kit" in advanced_page
 
     sourcing = next(
         item for item in app.checkbox
