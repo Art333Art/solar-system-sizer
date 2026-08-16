@@ -26,7 +26,7 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert [item.label for item in app.sidebar.expander[:6]] == [
         "1. Demand and EV",
         "2. PV module and strings",
-        "3. PV inverter and MPPT",
+        "3. Inverter architecture and PV MPPT",
         "4. Battery and inverter/charger",
         "5. Grid, yield and economics",
         "6. Project context",
@@ -257,14 +257,14 @@ def test_advanced_configuration_matrix_keeps_battery_inverter_active_without_pv(
     for title, (solar_active, battery_active) in expected.items():
         next(item for item in app.selectbox if item.label == "System configuration").set_value(title).run()
         panel = next(item for item in app.number_input if item.label == "Panel power (Wp)")
-        pv_inverter = next(item for item in app.number_input if item.label == "PV inverter rated AC output (kW)")
+        pv_inverter = next(item for item in app.number_input if item.label == "PV / hybrid inverter rated AC output (kW)")
         inverter = next(item for item in app.number_input if item.label == "Battery inverter/charger rated power (kW)")
         charge = next(item for item in app.number_input if item.label == "Inverter/charger AC charge limit (kW)")
         discharge = next(item for item in app.number_input if item.label == "Inverter/charger AC discharge limit (kW)")
         phases = next(item for item in app.selectbox if item.label == "Grid phases")
         assert panel.disabled is (not solar_active)
         assert pv_inverter.disabled is (not solar_active)
-        assert inverter.disabled is (not battery_active)
+        assert inverter.disabled is (not battery_active or (solar_active and battery_active))
         assert charge.disabled is (not battery_active)
         assert discharge.disabled is (not battery_active)
         assert phases.disabled is (not (solar_active or battery_active))
@@ -310,3 +310,27 @@ def test_advanced_overview_separates_charge_discharge_and_raw_bms_limits():
     assert metrics["Battery charge capability"] == "≤ 5.0 kW"
     assert metrics["Battery discharge capability"] == "≤ 8.0 kW"
     assert metrics["Battery/BMS raw limit"] == "10.0 kW"
+
+
+def test_hybrid_and_ac_coupled_architectures_apply_the_correct_inverter_rating():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Solar + battery").run()
+    app.radio[0].set_value("Advanced").run()
+    architecture = next(item for item in app.selectbox if item.label == "Inverter architecture")
+    assert architecture.value == "Hybrid inverter (shared AC rating)"
+    shared_rating = next(item for item in app.number_input if item.label == "PV / hybrid inverter rated AC output (kW)")
+    separate_rating = next(item for item in app.number_input if item.label == "Battery inverter/charger rated power (kW)")
+    assert not shared_rating.disabled
+    assert separate_rating.disabled
+    shared_rating.set_value(4.0).run()
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["Battery discharge capability"] == "≤ 4.0 kW"
+
+    architecture = next(item for item in app.selectbox if item.label == "Inverter architecture")
+    architecture.set_value("Separate PV + AC-coupled battery inverters").run()
+    separate_rating = next(item for item in app.number_input if item.label == "Battery inverter/charger rated power (kW)")
+    assert not separate_rating.disabled
+    separate_rating.set_value(7.0).run()
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["Battery discharge capability"] == "≤ 5.1 kW"  # default 51.2 V × 100 A BMS cap
+    assert any("Separate PV + AC-coupled battery inverters" in item.value for item in app.caption)

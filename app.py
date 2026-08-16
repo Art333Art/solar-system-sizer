@@ -43,6 +43,21 @@ def persistent_number_input(label, min_value, max_value, default, step, *, state
     )
 
 
+def persistent_selectbox(label, options, *, default, state_key, disabled=False):
+    stored_key = f"stored_{state_key}"
+    widget_key = f"widget_{state_key}"
+    if stored_key not in st.session_state or st.session_state[stored_key] not in options:
+        st.session_state[stored_key] = default
+
+    def store_value():
+        st.session_state[stored_key] = st.session_state[widget_key]
+
+    return st.selectbox(
+        label, options, index=options.index(st.session_state[stored_key]),
+        disabled=disabled, key=widget_key, on_change=store_value,
+    )
+
+
 if "events" not in st.session_state:
     st.session_state.events = []
 record_event(st.session_state.events, "calculator_started")
@@ -258,8 +273,27 @@ else:
             imp = st.number_input("Panel Imp at STC (A)", 1.0, 30.0, 13.25, 0.1, disabled=not solar_active)
             voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01, disabled=not solar_active)
             min_temp = st.number_input("Design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0, disabled=not solar_active)
-        with st.expander("3. PV inverter and MPPT", expanded=pv_inverter_active):
-            inverter_kw = st.number_input("PV inverter rated AC output (kW)", 0.5, 50.0, 3.68, 0.1, disabled=not pv_inverter_active)
+        with st.expander("3. Inverter architecture and PV MPPT", expanded=pv_inverter_active):
+            if solar_active and battery_active:
+                inverter_architecture = persistent_selectbox(
+                    "Inverter architecture",
+                    ["Hybrid inverter (shared AC rating)", "Separate PV + AC-coupled battery inverters"],
+                    default="Hybrid inverter (shared AC rating)", state_key="advanced_inverter_architecture",
+                )
+            elif solar_active:
+                inverter_architecture = "PV inverter only"
+                st.caption(inverter_architecture)
+            elif battery_active:
+                inverter_architecture = "Battery inverter/charger only"
+                st.caption("PV inverter and MPPT controls are inactive; the battery inverter/charger is configured below.")
+            else:
+                inverter_architecture = "No inverter / charger"
+                st.caption(inverter_architecture)
+            hybrid_inverter = inverter_architecture == "Hybrid inverter (shared AC rating)"
+            inverter_kw = persistent_number_input(
+                "PV / hybrid inverter rated AC output (kW)", 0.5, 50.0, 3.68, 0.1,
+                disabled=not pv_inverter_active, state_key="advanced_pv_hybrid_inverter_rating",
+            )
             max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0, disabled=not solar_active)
             mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0, disabled=not solar_active)
             mppt_max = st.number_input("MPPT maximum operating voltage (V)", 50.0, 1500.0, 550.0, 10.0, disabled=not solar_active)
@@ -284,8 +318,11 @@ else:
             st.markdown("##### Battery inverter/charger")
             battery_inverter_rating_kw = persistent_number_input(
                 "Battery inverter/charger rated power (kW)", 0.1, 100.0, 8.0, 0.1,
-                disabled=not battery_inverter_active, state_key="advanced_battery_inverter_rating",
+                disabled=not battery_inverter_active or hybrid_inverter,
+                state_key="advanced_battery_inverter_rating",
             )
+            if hybrid_inverter:
+                st.caption("The hybrid inverter uses the shared PV / hybrid AC rating above; separate charge and discharge limits still apply.")
             battery_charge_limit_kw = persistent_number_input("Inverter/charger AC charge limit (kW)", 0.1, 100.0, 5.0, 0.1,
                 disabled=not battery_inverter_active, state_key="advanced_battery_charge_power")
             battery_discharge_limit_kw = persistent_number_input("Inverter/charger AC discharge limit (kW)", 0.1, 100.0, 8.0, 0.1,
@@ -298,8 +335,9 @@ else:
         with st.expander("5. Grid, yield and economics", expanded=False):
             phases = st.selectbox("Grid phases", [1, 3], disabled=not inverter_charger_active)
             export_limited = st.checkbox("Export limitation scheme proposed", disabled=not inverter_charger_active)
+            effective_battery_inverter_kw = inverter_kw if hybrid_inverter else battery_inverter_rating_kw
             active_ac_limit_kw = inverter_kw if pv_inverter_active else min(
-                battery_inverter_rating_kw, battery_discharge_limit_kw
+                effective_battery_inverter_kw, battery_discharge_limit_kw
             )
             export_limit_kw = st.number_input("Proposed export limit (kW)", 0.0, 50.0, 3.68, 0.1, disabled=not inverter_charger_active) if export_limited else active_ac_limit_kw
             specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0, disabled=not solar_active)
@@ -326,7 +364,7 @@ else:
         SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
             mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, pvgis_losses),
         BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a,
-                      battery_inverter_rating_kw))
+                      effective_battery_inverter_kw))
     advanced_finance = calculate_consumer_result(household_kwh=home_kwh * 365, ev_miles_year=ev_miles * 365,
         ev_miles_per_kwh=ev_efficiency, ev_charge_efficiency=ev_charge_efficiency,
         specific_yield=specific_yield, panel_wp=panel_wp, max_panels=series * parallel,
@@ -348,8 +386,8 @@ else:
         battery_usable_kwh=battery_nominal_capacity * usable,
         battery_charge_efficiency=charge_efficiency,
         battery_discharge_efficiency=discharge_efficiency,
-        battery_charge_power_kw=min(battery_v * battery_a / 1000, battery_inverter_rating_kw, battery_charge_limit_kw),
-        battery_discharge_power_kw=min(battery_v * battery_a / 1000, battery_inverter_rating_kw, battery_discharge_limit_kw),
+        battery_charge_power_kw=min(battery_v * battery_a / 1000, effective_battery_inverter_kw, battery_charge_limit_kw),
+        battery_discharge_power_kw=min(battery_v * battery_a / 1000, effective_battery_inverter_kw, battery_discharge_limit_kw),
         allow_battery_export=advanced_allow_battery_export,
         offpeak_window_hours=advanced_offpeak_window or 4.0,
     )
@@ -358,6 +396,7 @@ else:
 
     with st.container(border=True):
         st.markdown("#### System overview")
+        st.caption(f"Inverter architecture: {inverter_architecture}")
         cols = st.columns(3)
         cols[0].metric("Selected array", f"{selected_scenario.solar_kwp:.2f} kWp", f"{selected_scenario.panels} panels" if selected_scenario.panels else "solar disabled")
         cols[1].metric("Annual generation", f"{selected_scenario.annual_generation_kwh:,.0f} kWh")
@@ -367,11 +406,11 @@ else:
         battery_selected = selected_scenario.battery_usable_kwh > 0
         capability_cols[0].metric(
             "Battery charge capability",
-            f"≤ {min(raw_battery_limit_kw, battery_inverter_rating_kw, battery_charge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+            f"≤ {min(raw_battery_limit_kw, effective_battery_inverter_kw, battery_charge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
         )
         capability_cols[1].metric(
             "Battery discharge capability",
-            f"≤ {min(raw_battery_limit_kw, battery_inverter_rating_kw, battery_discharge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+            f"≤ {min(raw_battery_limit_kw, effective_battery_inverter_kw, battery_discharge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
         )
         capability_cols[2].metric(
             "Battery/BMS raw limit",
