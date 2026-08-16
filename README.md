@@ -19,9 +19,9 @@ This is an early-stage planning tool, not an electrical design, MCS calculation,
 
 ## Affiliate configuration
 
-Commercial offers are configured in `solar_sizer/affiliates.py`; only enabled offers whose context requirements match the calculation are rendered. Approved Amazon UK Associates links carry the disclosure. The two Bimble applications remain disabled pending approval, and the supplied bokman URL remains disabled because it currently resolves to a different brand/product. Verify every destination before enabling it.
+Commercial offers are configured in `solar_sizer/affiliates.py`; only enabled offers whose context requirements match the calculation are rendered. EV links require entered EV mileage, while specialist solar tools and SWA cable require both Advanced mode and an explicit project-sourcing context. Approved Amazon UK Associates links carry the disclosure. The two Bimble applications remain disabled pending approval.
 
-The quote-interest sink in `solar_sizer/leads.py` deliberately validates but stores and transmits nothing. Replace that function with an owner-approved service only after privacy, consent, retention and processor terms are ready. Anonymous analytics currently remain in Streamlit session memory and contain event name/time only.
+The quote-interest sink in `solar_sizer/leads.py` deliberately validates but stores and transmits nothing. Replace that function with an owner-approved service only after privacy, consent, retention and processor terms are ready. Minimal event counters remain in Streamlit session memory and contain event name/time only; they are not displayed to customers.
 
 ## Commercial launch checklist
 

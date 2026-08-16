@@ -12,9 +12,8 @@ class AffiliateOffer:
     required_contexts: frozenset[str]
 
 
-# Approval state is deliberately explicit. Pending offers stay configured so
-# they are easy to activate after acceptance, but the UI only reads enabled
-# entries. Do not enable an offer without confirming its approved tracking URL.
+# Approval state is deliberately explicit. The UI only reads enabled entries
+# whose calculation context matches their intended audience.
 AFFILIATE_OFFERS = (
     AffiliateOffer(
         key="amazon_electricals",
@@ -23,7 +22,7 @@ AFFILIATE_OFFERS = (
         url="https://link.amazon/B05z6RNmr",
         enabled=True,
         network="Amazon UK Associates",
-        required_contexts=frozenset({"advanced"}),
+        required_contexts=frozenset({"advanced", "diy"}),
     ),
     AffiliateOffer(
         key="amazon_ev_charger",
@@ -36,16 +35,16 @@ AFFILIATE_OFFERS = (
     ),
     AffiliateOffer(
         key="amazon_ev_cable",
-        title="bokman Type 2 EV charging cable",
+        title="bokman Type 2 EV cable",
         description="Relevant to Type 2 EV users. A cable marketed for up to 22 kW will charge only at the lowest limit of the vehicle, charge point, cable and electrical supply.",
         url="https://link.amazon/B04LIcvRh",
-        enabled=False,
-        network="Amazon URL target mismatch — awaiting corrected tracking URL",
+        enabled=True,
+        network="Amazon UK Associates",
         required_contexts=frozenset({"ev"}),
     ),
     AffiliateOffer(
         key="amazon_solar_tools",
-        title="SOMELINE solar crimping tool kit",
+        title="SOMELINE solar crimping kit",
         description="An Advanced/DIY tool kit only. Included connectors are not proof of compatibility: use the exact connector family and manufacturer-approved tooling specified for the installation.",
         url="https://link.amazon/B0f4YmGAU",
         enabled=True,
@@ -54,7 +53,7 @@ AFFILIATE_OFFERS = (
     ),
     AffiliateOffer(
         key="amazon_energy_monitor",
-        title="OWON 80A two-clamp bi-directional Wi-Fi energy monitor",
+        title="OWON 80A 2-clamp bi-directional energy monitor",
         description="Relevant for observing household import, export and self-consumption. Installation around mains conductors must follow the manufacturer instructions and be completed without unqualified access to live electrical equipment.",
         url="https://link.amazon/B0fdrsDTb",
         enabled=True,

@@ -8,7 +8,7 @@ from solar_sizer.consumer import calculate_consumer_result
 from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quote_interest
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 
-APP_RELEASE = "dual-mode-workbench-2026-08"
+APP_RELEASE = "hybrid-contextual-products-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -132,7 +132,7 @@ if mode == "Simple":
 - The inverter range is an initial DC/AC screening range. Equipment, phases, DNO route, clipping and backup loads require a competent designer.
 """)
 else:
-    recommendation_contexts.update({"advanced", "diy"})
+    recommendation_contexts.add("advanced")
     st.subheader("Advanced system-design workbench")
     st.caption("Adjust the grouped controls in the left sidebar; every result updates immediately.")
     with st.sidebar:
@@ -181,6 +181,11 @@ else:
             advanced_offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if advanced_has_offpeak else None
             advanced_has_cost = st.checkbox("Include installed cost for payback")
             advanced_cost = st.number_input("Installed system cost (£)", 100.0, 100000.0, 10000.0, 100.0) if advanced_has_cost else None
+        with st.expander("6. Project context", expanded=False):
+            diy_context = st.checkbox(
+                "I am sourcing specialist solar/electrical installation materials",
+                help="Only use specialist tools and cable after a competent designer has specified the exact products and installation method.",
+            )
     result = calculate_system(LoadInputs(home_kwh, ev_miles, ev_efficiency, ev_charge_efficiency),
         SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
             mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, pvgis_losses),
@@ -227,14 +232,16 @@ else:
     record_event(st.session_state.events, "calculator_completed")
     if ev_miles > 0:
         recommendation_contexts.add("ev")
+    if diy_context:
+        recommendation_contexts.add("diy")
 
 st.divider()
-st.subheader("Interested in an installer quote?")
-st.caption("No installer is connected yet. This interest form currently sends and stores nothing.")
-quote_open = st.checkbox("I'm interested in a future installer quote")
+st.subheader("Would a future installer quote service be useful?")
+st.caption("We are assessing interest only. There is no installer matching service or installer connection yet, and this form sends and stores nothing.")
+quote_open = st.checkbox("I'd like to register interest in a future quote service")
 if quote_open:
     record_event(st.session_state.events, "quote_opened")
-    st.info("No installer partnership is claimed. This demo validates your interest but currently stores or sends nothing.")
+    st.info("This only validates the form on your device. It does not contact an installer or send us your details.")
     with st.form("quote_interest"):
         lead_name = st.text_input("Name")
         lead_email = st.text_input("Email")
@@ -270,7 +277,7 @@ enabled_by_key = {offer.key: offer for offer in recommended_offers}
 if outbound_key in enabled_by_key:
     record_event(st.session_state.events, "affiliate_clicked")
     outbound_offer = enabled_by_key[outbound_key]
-    st.info("Outbound Amazon click recorded anonymously in this session. No postcode, calculation or personal data was attached.")
+    st.info("You are leaving this calculator for an Amazon UK product page. Check the listing and compatibility before buying.")
     st.link_button("Continue to Amazon UK", outbound_offer.url, type="primary")
 
 with st.expander("Methodology, sources, privacy and disclosures"):
@@ -279,7 +286,7 @@ with st.expander("Methodology, sources, privacy and disclosures"):
 - [ENA connection guidance](https://www.energynetworks.org/industry/engineering-and-technical-programmes/connecting-to-the-networks) covers G98/G99 and type-tested equipment.
 - [MCS consumer guidance](https://mcscertified.com/consumers-communities/) explains certified installation and consumer protection.
 - [GOV.UK smart charge point rules](https://www.gov.uk/guidance/regulations-electric-vehicle-smart-charge-points) cover relevant domestic EV-charger requirements.
-- A postcode is sent to Postcodes.io for coordinates; coordinates and roof inputs are sent to the European Commission PVGIS service. Quote details are not persisted or transmitted. Anonymous events contain only an event name and time in this browser session.
+- A postcode is sent to Postcodes.io for coordinates; coordinates and roof inputs are sent to the European Commission PVGIS service. Quote details are not persisted or transmitted.
 - Privacy policy, cookie notice, terms and commercial disclosure require final owner/legal review before public deployment.
 """)
     st.caption(f"Release: {APP_RELEASE}")

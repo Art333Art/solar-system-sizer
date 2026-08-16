@@ -3,6 +3,7 @@ import pytest
 from solar_sizer.calculations import calculate_cold_voc, calculate_system
 from solar_sizer.models import BatteryInputs, LoadInputs, SolarInputs
 from solar_sizer.affiliates import AFFILIATE_OFFERS, enabled_affiliate_offers
+from solar_sizer.consumer import calculate_consumer_result
 
 
 def inputs(**overrides):
@@ -59,18 +60,53 @@ def test_invalid_positive_values_are_rejected():
 def test_only_approved_amazon_affiliates_are_public():
     enabled = enabled_affiliate_offers()
     assert [offer.key for offer in enabled] == [
-        "amazon_electricals", "amazon_ev_charger", "amazon_solar_tools",
-        "amazon_energy_monitor",
+        "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
+        "amazon_solar_tools", "amazon_energy_monitor",
     ]
-    assert enabled[0].url == "https://link.amazon/B05z6RNmr"
-    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 3
+    assert {offer.key: offer.url for offer in enabled} == {
+        "amazon_electricals": "https://link.amazon/B05z6RNmr",
+        "amazon_ev_charger": "https://link.amazon/B03Lpp2EH",
+        "amazon_ev_cable": "https://link.amazon/B04LIcvRh",
+        "amazon_solar_tools": "https://link.amazon/B0f4YmGAU",
+        "amazon_energy_monitor": "https://link.amazon/B0fdrsDTb",
+    }
+    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 2
 
 
 def test_affiliates_are_filtered_by_calculator_context():
     assert [offer.key for offer in enabled_affiliate_offers({"monitoring"})] == ["amazon_energy_monitor"]
     assert [offer.key for offer in enabled_affiliate_offers({"monitoring", "ev"})] == [
-        "amazon_ev_charger", "amazon_energy_monitor",
+        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in enabled_affiliate_offers({"advanced", "monitoring"})] == [
+        "amazon_energy_monitor",
     ]
     assert [offer.key for offer in enabled_affiliate_offers({"advanced", "diy", "monitoring"})] == [
         "amazon_electricals", "amazon_solar_tools", "amazon_energy_monitor",
     ]
+
+
+def test_equivalent_simple_and_advanced_inputs_have_consistent_core_results():
+    load = LoadInputs(10, 20, 3.5, 0.9)
+    solar = inputs()
+    advanced = calculate_system(load, solar, battery())
+    simple = calculate_consumer_result(
+        household_kwh=load.home_kwh_day * 365,
+        ev_miles_year=load.ev_miles_day * 365,
+        ev_miles_per_kwh=load.ev_efficiency_miles_per_kwh,
+        ev_charge_efficiency=load.ev_charging_efficiency,
+        specific_yield=solar.annual_specific_yield_kwh_kwp,
+        panel_wp=solar.panel_wp,
+        max_panels=solar.panels_series * solar.parallel_strings,
+        wants_battery=True,
+        import_tariff_p=25,
+        export_tariff_p=15,
+        offpeak_tariff_p=None,
+        installed_cost_gbp=None,
+        forced_array_kwp=advanced.array_kwp,
+    )
+
+    assert simple.ev_demand_kwh == pytest.approx(advanced.ev_kwh_day * 365)
+    assert simple.annual_demand_kwh == pytest.approx(advanced.total_load_kwh_day * 365)
+    assert simple.array_kwp == pytest.approx(advanced.array_kwp)
+    assert simple.annual_generation_kwh == pytest.approx(advanced.annual_generation_kwh)
