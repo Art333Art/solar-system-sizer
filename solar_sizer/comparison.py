@@ -21,6 +21,11 @@ class ScenarioResult:
     solar_battery_charge_kwh: float
     grid_battery_charge_kwh: float
     battery_discharge_kwh: float
+    battery_export_kwh: float
+    solar_export_kwh: float
+    battery_charge_loss_kwh: float
+    battery_discharge_loss_kwh: float
+    export_income_gbp: float
     self_consumed_kwh: float
     peak_rate_import_kwh: float
     offpeak_import_kwh: float
@@ -55,14 +60,19 @@ def compare_system_scenarios(*, annual_demand_kwh: float, ev_demand_kwh: float,
     battery_charge_efficiency: float = DEFAULT_CHARGE_EFFICIENCY,
     battery_discharge_efficiency: float = DEFAULT_DISCHARGE_EFFICIENCY,
     battery_power_kw: float = 5.0,
+    battery_charge_power_kw: float | None = None,
+    battery_discharge_power_kw: float | None = None,
+    allow_battery_export: bool = False,
     offpeak_window_hours: float = 4.0) -> ScenarioComparison:
     """Compare distinct grid, solar and battery operating configurations.
 
     EV demand is already included in ``annual_demand_kwh``. Its separate value
     only adjusts likely direct daytime use and is never added again.
     """
+    charge_power = battery_charge_power_kw if battery_charge_power_kw is not None else battery_power_kw
+    discharge_power = battery_discharge_power_kw if battery_discharge_power_kw is not None else battery_power_kw
     if min(annual_demand_kwh, solar_kwp, panels, specific_yield, import_tariff_p,
-           battery_charge_efficiency, battery_discharge_efficiency, battery_power_kw) <= 0:
+           battery_charge_efficiency, battery_discharge_efficiency, charge_power, discharge_power) <= 0:
         raise ValueError("Demand, equipment, efficiency and tariff inputs must be positive")
     if not 0 <= ev_demand_kwh <= annual_demand_kwh or export_tariff_p < 0:
         raise ValueError("EV demand and export tariff are outside the valid range")
@@ -93,7 +103,8 @@ def compare_system_scenarios(*, annual_demand_kwh: float, ev_demand_kwh: float,
             surplus = max(0.0, scenario_generation - direct)
             solar_stored_limit = min(
                 usable_capacity * SOLAR_SHIFTING_CYCLES,
-                battery_power_kw * 6 * DAYS_PER_YEAR * battery_charge_efficiency,
+                charge_power * 6 * DAYS_PER_YEAR * battery_charge_efficiency,
+                discharge_power * 6 * DAYS_PER_YEAR / battery_discharge_efficiency,
             )
             solar_charge = min(surplus, remaining_demand / round_trip_efficiency,
                                solar_stored_limit / battery_charge_efficiency)
@@ -103,6 +114,8 @@ def compare_system_scenarios(*, annual_demand_kwh: float, ev_demand_kwh: float,
 
         grid_charge = 0.0
         grid_discharge = 0.0
+        battery_export = 0.0
+        grid_stored = 0.0
         if use_battery and grid_optimised and offpeak_tariff_p is not None:
             economically_useful = offpeak_tariff_p / round_trip_efficiency < import_tariff_p
             if economically_useful:
@@ -110,23 +123,51 @@ def compare_system_scenarios(*, annual_demand_kwh: float, ev_demand_kwh: float,
                 stored_from_grid = min(
                     remaining_demand / battery_discharge_efficiency,
                     remaining_stored_capacity,
-                    battery_power_kw * offpeak_window_hours * DAYS_PER_YEAR * battery_charge_efficiency,
+                    charge_power * offpeak_window_hours * DAYS_PER_YEAR * battery_charge_efficiency,
+                    discharge_power * 18 * DAYS_PER_YEAR / battery_discharge_efficiency,
                 )
                 grid_charge = stored_from_grid / battery_charge_efficiency
                 grid_discharge = stored_from_grid * battery_discharge_efficiency
+                grid_stored = stored_from_grid
                 remaining_demand -= grid_discharge
 
+            # Grid-charged export is deliberately opt-in and only dispatched when
+            # the entered export value exceeds the round-trip cost. Eligibility is
+            # a supplier/export-contract matter, not inferred by this model.
+            export_is_economic = export_tariff_p > offpeak_tariff_p / round_trip_efficiency
+            if allow_battery_export and export_tariff_p > 0 and export_is_economic:
+                annual_capacity_left = max(0.0, usable_capacity * DAYS_PER_YEAR - solar_stored - grid_stored)
+                charge_input_left = max(0.0, charge_power * offpeak_window_hours * DAYS_PER_YEAR - grid_charge)
+                discharge_output_left = max(0.0, discharge_power * 18 * DAYS_PER_YEAR - solar_discharge - grid_discharge)
+                export_stored = min(
+                    annual_capacity_left,
+                    charge_input_left * battery_charge_efficiency,
+                    discharge_output_left / battery_discharge_efficiency,
+                )
+                grid_charge += export_stored / battery_charge_efficiency
+                battery_export = export_stored * battery_discharge_efficiency
+                grid_stored += export_stored
+
         peak_import = max(0.0, remaining_demand)
-        export = max(0.0, scenario_generation - direct - solar_charge)
+        solar_export = max(0.0, scenario_generation - direct - solar_charge)
+        export = solar_export + battery_export
         total_import = peak_import + grid_charge
         net_cost = (peak_import * import_tariff_p + grid_charge * (offpeak_tariff_p or 0)) / 100
-        net_cost -= export * export_tariff_p / 100
+        export_income = export * export_tariff_p / 100
+        net_cost -= export_income
+        total_charge = solar_charge + grid_charge
+        total_stored_discharged = solar_stored + grid_stored
         return {
             "generation": scenario_generation,
             "direct": direct,
             "solar_charge": solar_charge,
             "grid_charge": grid_charge,
             "discharge": solar_discharge + grid_discharge,
+            "battery_export": battery_export,
+            "solar_export": solar_export,
+            "charge_loss": total_charge * (1 - battery_charge_efficiency),
+            "discharge_loss": total_stored_discharged * (1 - battery_discharge_efficiency),
+            "export_income": export_income,
             "peak_import": peak_import,
             "total_import": total_import,
             "export": export,
@@ -154,6 +195,8 @@ def compare_system_scenarios(*, annual_demand_kwh: float, ev_demand_kwh: float,
             battery_low if use_battery else 0.0, battery_high if use_battery else 0.0,
             usable_capacity if use_battery else 0.0, flow["generation"], flow["direct"],
             flow["solar_charge"], flow["grid_charge"], flow["discharge"],
+            flow["battery_export"], flow["solar_export"], flow["charge_loss"],
+            flow["discharge_loss"], flow["export_income"],
             flow["direct"] + flow["solar_charge"], flow["peak_import"], flow["grid_charge"],
             flow["total_import"], flow["export"], flow["cost"], benefit, installed_cost, payback,
         )

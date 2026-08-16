@@ -12,6 +12,6 @@ Convert annual EV mileage into charging energy using the vehicle's miles per kWh
 G98 is based on no more than 16 A per phase and applicable fully type-tested generating equipment; 3.68 kW is the familiar single-phase equivalent at 230 V. Larger or aggregated generation normally needs the relevant G99 process before connection. An export limitation scheme does not automatically make a larger installation G98. Confirm the route with the DNO and competent designer.
 """,
     "Battery payback with cheap off-peak electricity": """
-A battery can also shift some import from a standard tariff to a cheaper overnight period. The saving depends on the tariff spread, conversion losses, usable capacity and achievable cycles. The calculator models only a conservative share of remaining grid import at 90% delivery efficiency and does not assume paid battery export. Check tariff rules and standing charges separately.
+A battery can also shift some import from a standard tariff to a cheaper overnight period. The saving depends on the tariff spread, conversion losses, usable capacity and achievable cycles. Paid battery export is modelled only when the user explicitly enables it and the entered tariffs support it; supplier eligibility is never assumed. Check tariff rules and standing charges separately.
 """,
 }

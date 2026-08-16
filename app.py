@@ -10,7 +10,7 @@ from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quo
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
-APP_RELEASE = "configuration-state-controls-2026-08"
+APP_RELEASE = "battery-capacity-export-ledger-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -95,6 +95,27 @@ if mode == "Simple":
         else:
             max_panels = st.number_input("Approximate maximum panel count", 1, 100, 12, disabled=not solar_active)
         ev_miles_week = st.number_input("EV driving (miles/week)", 0.0, 2000.0, 0.0, 10.0)
+        simple_ev_kwh = ev_miles_week * 52 / 3.5 / 0.90
+        simple_daily_kwh = (annual_home_kwh + simple_ev_kwh) / 365
+        recommended_battery_low = simple_daily_kwh * 0.4
+        recommended_battery_high = simple_daily_kwh * 0.8
+        if battery_active:
+            st.caption(f"Suggested usable battery range: {recommended_battery_low:.1f}–{recommended_battery_high:.1f} kWh.")
+        battery_size_kwh = st.number_input(
+            "Battery size (kWh usable)", 0.5, 100.0,
+            round((recommended_battery_low + recommended_battery_high) * 2) / 4,
+            0.5, disabled=not battery_active, key="simple_battery_size",
+        )
+        simple_battery_power_kw = st.number_input(
+            "Battery charge/discharge limit (kW)", 0.1, 50.0, 5.0, 0.1,
+            disabled=not battery_active, key="simple_battery_power",
+        )
+        allow_battery_export = st.checkbox(
+            "Allow battery export to grid", value=False, disabled=not battery_active,
+            key="simple_allow_battery_export",
+        )
+        if battery_active:
+            st.caption("Battery export is modelled only when the entered tariff makes it viable. Supplier and export-tariff eligibility for grid-charged energy varies.")
         wants_battery = battery_active
         knows_cost = st.checkbox("I have an estimated installed cost")
         installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0, disabled=not solar_active) if knows_cost else None
@@ -131,10 +152,12 @@ if mode == "Simple":
         offpeak_tariff_p=offpeak_tariff,
         solar_installed_cost_gbp=installed_cost,
         battery_addon_cost_gbp=battery_addon_cost,
-        battery_usable_kwh=consumer.annual_demand_kwh / 365 * 0.6,
+        battery_usable_kwh=battery_size_kwh,
         battery_charge_efficiency=0.95,
         battery_discharge_efficiency=0.95,
-        battery_power_kw=5.0,
+        battery_charge_power_kw=simple_battery_power_kw,
+        battery_discharge_power_kw=simple_battery_power_kw,
+        allow_battery_export=allow_battery_export,
         offpeak_window_hours=offpeak_window_hours or 4.0,
     )
     comparison = compare_system_scenarios(**comparison_inputs)
@@ -161,10 +184,13 @@ if mode == "Simple":
             "Solar used in the home": f"{selected_scenario.self_consumed_kwh:,.0f} kWh ({selected_scenario.self_consumption_pct:.0f}% of generation)",
             "Peak-rate grid import": f"{selected_scenario.peak_rate_import_kwh:,.0f} kWh",
             "Total grid import": f"{selected_scenario.grid_import_kwh:,.0f} kWh",
-            "Solar export": f"{selected_scenario.export_kwh:,.0f} kWh",
+            "Solar export": f"{selected_scenario.solar_export_kwh:,.0f} kWh",
+            "Battery energy used in the home": f"{selected_scenario.battery_discharge_kwh:,.0f} kWh",
+            "Battery export": f"{selected_scenario.battery_export_kwh:,.0f} kWh",
+            "Battery charging/discharging losses": f"{selected_scenario.battery_charge_loss_kwh + selected_scenario.battery_discharge_loss_kwh:,.0f} kWh",
             "Off-peak battery charging": f"{selected_scenario.offpeak_import_kwh:,.0f} kWh" if selected_scenario.offpeak_import_kwh else "Not used",
             "Import cost before solar": f"£{consumer.before_cost_gbp:,.0f}/year",
-            "Export income": f"£{selected_scenario.export_kwh * export_tariff / 100:,.0f}/year",
+            "Export income": f"£{selected_scenario.export_income_gbp:,.0f}/year",
             "Grid import cost": f"£{(selected_scenario.peak_rate_import_kwh * import_tariff + selected_scenario.offpeak_import_kwh * (offpeak_tariff or 0)) / 100:,.0f}/year",
             "Net annual cost after export income": f"£{selected_scenario.annual_electricity_cost_gbp:,.0f}/year",
         }
@@ -177,7 +203,7 @@ if mode == "Simple":
 - Array size aims to cover annual household and EV demand, limited by the roof-space answer.
 - A 440 W, roughly 2 m² panel is assumed. Actual panel dimensions and roof exclusion zones vary.
 - Self-consumption uses an annual heuristic (higher with a battery); half-hourly load and PV simulation is required for a firm forecast.
-- Off-peak modelling assumes some remaining import can be shifted through a battery at 90% delivery efficiency. It does not assume battery export income.
+- Off-peak modelling shifts eligible import through the selected battery after charge/discharge losses. Battery export remains zero unless explicitly enabled, economically viable under the entered tariffs, and technically constrained by the selected capacity and power.
 - The inverter range is an initial DC/AC screening range. Equipment, phases, DNO route, clipping and backup loads require a competent designer.
 """)
     plan_inverter_low = consumer.inverter_low_kw
@@ -210,16 +236,29 @@ else:
             mppt_max = st.number_input("MPPT maximum operating voltage (V)", 50.0, 1500.0, 550.0, 10.0, disabled=not solar_active)
             max_imp = st.number_input("Maximum operating current/MPPT (A)", 1.0, 100.0, 25.0, 1.0, disabled=not solar_active)
             max_isc = st.number_input("Maximum short-circuit current/MPPT (A)", 1.0, 150.0, 32.0, 1.0, disabled=not solar_active)
-            battery_inverter_kw = st.number_input("Inverter battery charge/discharge limit (kW)", 0.1, 100.0, 5.0, 0.1, disabled=not battery_active)
+            battery_charge_limit_kw = st.number_input("Battery charge power limit (kW)", 0.1, 100.0, 5.0, 0.1, disabled=not battery_active)
+            battery_discharge_limit_kw = st.number_input("Battery discharge power limit (kW)", 0.1, 100.0, 5.0, 0.1, disabled=not battery_active)
         with st.expander("4. Battery", expanded=battery_active):
             chemistry = st.selectbox("Battery chemistry", ["LFP", "NMC", "Lead-acid / AGM", "Other / manufacturer-defined"], disabled=not battery_active)
             st.caption("Chemistry is recorded for context; use the selected battery datasheet for usable capacity and current limits.")
+            advanced_recommended_usable = (home_kwh + ev_miles / ev_efficiency / ev_charge_efficiency) * 0.6
+            battery_nominal_capacity = st.number_input(
+                "Installed battery capacity (kWh nominal)", 0.5, 200.0,
+                round(advanced_recommended_usable / 0.9 * 2) / 2, 0.5,
+                disabled=not battery_active,
+            )
             autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12, disabled=not battery_active)
             usable = st.slider("Usable battery fraction (%)", 20, 100, 90, disabled=not battery_active) / 100
+            st.caption(f"Usable capacity at the selected DoD: {battery_nominal_capacity * usable:.1f} kWh.")
             charge_efficiency = st.slider("AC-to-battery efficiency (%)", 70, 100, 95, disabled=not battery_active) / 100
             discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94, disabled=not battery_active) / 100
             battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0, disabled=not battery_active)
             battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0, disabled=not battery_active)
+            advanced_allow_battery_export = st.checkbox(
+                "Allow battery export to grid", value=False, disabled=not battery_active,
+                key="advanced_allow_battery_export",
+            )
+            st.caption("Export of grid-charged energy is opt-in. Supplier/export-tariff eligibility and metering terms must be confirmed.")
         with st.expander("5. Grid, yield and economics", expanded=False):
             phases = st.selectbox("Grid phases", [1, 3], disabled=not solar_active)
             export_limited = st.checkbox("Export limitation scheme proposed", disabled=not solar_active)
@@ -247,7 +286,8 @@ else:
     result = calculate_system(LoadInputs(home_kwh, ev_miles, ev_efficiency, ev_charge_efficiency),
         SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
             mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, pvgis_losses),
-        BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a, battery_inverter_kw))
+        BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a,
+                      min(battery_charge_limit_kw, battery_discharge_limit_kw)))
     advanced_finance = calculate_consumer_result(household_kwh=home_kwh * 365, ev_miles_year=ev_miles * 365,
         ev_miles_per_kwh=ev_efficiency, ev_charge_efficiency=ev_charge_efficiency,
         specific_yield=specific_yield, panel_wp=panel_wp, max_panels=series * parallel,
@@ -266,10 +306,12 @@ else:
         offpeak_tariff_p=advanced_offpeak_tariff,
         solar_installed_cost_gbp=advanced_cost,
         battery_addon_cost_gbp=advanced_battery_cost,
-        battery_usable_kwh=result.battery_nominal_kwh * usable,
+        battery_usable_kwh=battery_nominal_capacity * usable,
         battery_charge_efficiency=charge_efficiency,
         battery_discharge_efficiency=discharge_efficiency,
-        battery_power_kw=result.battery_continuous_kw,
+        battery_charge_power_kw=min(battery_v * battery_a / 1000, battery_charge_limit_kw),
+        battery_discharge_power_kw=min(battery_v * battery_a / 1000, battery_discharge_limit_kw),
+        allow_battery_export=advanced_allow_battery_export,
         offpeak_window_hours=advanced_offpeak_window or 4.0,
     )
     comparison = compare_system_scenarios(**comparison_inputs)
@@ -309,6 +351,10 @@ else:
         st.markdown("#### Grid and export route")
         if not selected_scenario.solar_kwp:
             st.write("No solar generating installation is included in the selected configuration.")
+            if selected_scenario.battery_usable_kwh and advanced_allow_battery_export:
+                st.info("Battery export is enabled as a modelling assumption. Confirm that the supplier/export contract accepts grid-charged battery exports; SEG eligibility is not automatic.")
+            elif selected_scenario.battery_usable_kwh:
+                st.caption("Battery export is disabled; the battery may charge off-peak for later household use, but modelled battery export remains zero.")
         elif export_limited:
             st.info(f"Proposed export limit: {export_limit_kw:.2f} kW. An export limitation scheme requires appropriate design/commissioning and does not automatically change the G98/G99 application route.")
         else:
@@ -341,6 +387,9 @@ for scenario in comparison.scenarios:
         "Self-consumption": f"{scenario.self_consumption_pct:.0f}%",
         "Peak import": f"{scenario.peak_rate_import_kwh:,.0f} kWh",
         "Off-peak charge": f"{scenario.offpeak_import_kwh:,.0f} kWh",
+        "Battery home use": f"{scenario.battery_discharge_kwh:,.0f} kWh",
+        "Battery export": f"{scenario.battery_export_kwh:,.0f} kWh",
+        "Battery losses": f"{scenario.battery_charge_loss_kwh + scenario.battery_discharge_loss_kwh:,.0f} kWh",
         "Total import": f"{scenario.grid_import_kwh:,.0f} kWh",
         "Export": f"{scenario.export_kwh:,.0f} kWh",
         "Annual electricity cost": f"£{scenario.annual_electricity_cost_gbp:,.0f}",
@@ -440,6 +489,7 @@ with st.expander("Methodology, sources, privacy and disclosures"):
 - [MCS consumer guidance](https://mcscertified.com/consumers-communities/) explains certified installation and consumer protection.
 - [GOV.UK smart charge point rules](https://www.gov.uk/guidance/regulations-electric-vehicle-smart-charge-points) cover relevant domestic EV-charger requirements.
 - [Energy Saving Trust battery guidance](https://energysavingtrust.org.uk/advice/battery-storage/) explains why storage size depends on how much electricity a home uses, when it uses it, available solar surplus and time-of-use charging.
+- [GOV.UK Smart Export Guarantee guidance](https://www.gov.uk/government/publications/smart-export-guarantee-seg-earn-money-for-exporting-the-renewable-electricity-you-have-generated) and [Ofgem generator guidance](https://www.ofgem.gov.uk/environmental-and-social-schemes/smart-export-guarantee-seg/smart-export-guarantee-seg-generators) explain that storage may be eligible, but the chosen supplier sets its application, metering and payment terms.
 - A postcode is sent to Postcodes.io for coordinates; coordinates and roof inputs are sent to the European Commission PVGIS service. Quote details are not persisted or transmitted.
 - Privacy policy, cookie notice, terms and commercial disclosure require final owner/legal review before public deployment.
 """)

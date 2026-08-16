@@ -125,3 +125,51 @@ def test_costs_enable_payback_ranking():
     assert by_key(result, "solar").payback_years is not None
     assert by_key(result, "battery_only").payback_years is not None
     assert result.ranking_basis == "shortest simple payback"
+
+
+def test_battery_export_is_opt_in_and_disabled_by_default():
+    battery = by_key(comparison(offpeak_tariff_p=5, export_tariff_p=30), "battery_only")
+    assert battery.grid_battery_charge_kwh > 0
+    assert battery.battery_discharge_kwh > 0
+    assert battery.battery_export_kwh == 0
+    assert battery.solar_export_kwh == battery.export_kwh == 0
+
+
+def test_battery_only_can_charge_for_home_and_export_when_explicitly_enabled():
+    battery = by_key(comparison(
+        annual_demand_kwh=1000, ev_demand_kwh=0, battery_usable_kwh=10,
+        offpeak_tariff_p=5, export_tariff_p=30, allow_battery_export=True,
+        battery_charge_efficiency=0.90, battery_discharge_efficiency=0.90,
+        battery_charge_power_kw=5, battery_discharge_power_kw=5,
+    ), "battery_only")
+    assert battery.annual_generation_kwh == battery.solar_export_kwh == 0
+    assert battery.battery_discharge_kwh == pytest.approx(1000)
+    assert battery.battery_export_kwh > 0
+    assert battery.export_kwh == pytest.approx(battery.battery_export_kwh)
+    assert battery.export_income_gbp == pytest.approx(battery.export_kwh * 0.30)
+
+
+def test_battery_losses_and_financial_ledger_reconcile():
+    battery = by_key(comparison(
+        annual_demand_kwh=1000, ev_demand_kwh=0, battery_usable_kwh=10,
+        offpeak_tariff_p=5, export_tariff_p=30, allow_battery_export=True,
+        battery_charge_efficiency=0.90, battery_discharge_efficiency=0.90,
+        battery_charge_power_kw=5, battery_discharge_power_kw=5,
+    ), "battery_only")
+    charged = battery.solar_battery_charge_kwh + battery.grid_battery_charge_kwh
+    delivered = battery.battery_discharge_kwh + battery.battery_export_kwh
+    assert charged * 0.90 == pytest.approx(delivered + battery.battery_discharge_loss_kwh)
+    assert battery.battery_charge_loss_kwh == pytest.approx(charged * 0.10)
+    expected_cost = (
+        battery.peak_rate_import_kwh * 0.30
+        + battery.offpeak_import_kwh * 0.05
+        - battery.export_income_gbp
+    )
+    assert battery.annual_electricity_cost_gbp == pytest.approx(expected_cost)
+
+
+def test_battery_export_requires_a_profitable_valid_export_assumption():
+    battery = by_key(comparison(
+        offpeak_tariff_p=20, export_tariff_p=21, allow_battery_export=True,
+    ), "battery_only")
+    assert battery.battery_export_kwh == 0

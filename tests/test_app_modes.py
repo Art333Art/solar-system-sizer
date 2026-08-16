@@ -187,3 +187,25 @@ def test_inactive_component_outputs_clear_and_input_state_survives_switching():
     panel_power = next(item for item in app.number_input if item.label == "Panel power (Wp)")
     assert not panel_power.disabled and panel_power.value == 500
     assert next(metric for metric in app.metric if metric.label == "Selected array").value == "5.00 kWp"
+
+
+def test_explicit_battery_capacity_controls_are_available_in_both_modes():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    simple_size = next(item for item in app.number_input if item.label == "Battery size (kWh usable)")
+    assert simple_size.disabled
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    configuration.set_value("Battery only").run()
+    simple_size = next(item for item in app.number_input if item.label == "Battery size (kWh usable)")
+    assert not simple_size.disabled
+    simple_size.set_value(12.5).run()
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.5 kWh usable"
+    export_control = next(item for item in app.checkbox if item.label == "Allow battery export to grid")
+    assert not export_control.disabled and export_control.value is False
+
+    app.radio[0].set_value("Advanced").run()
+    nominal = next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)")
+    assert not nominal.disabled
+    nominal.set_value(14.0).run()
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.6 kWh usable"
+    labels = {item.label for item in app.number_input}
+    assert {"Battery charge power limit (kW)", "Battery discharge power limit (kW)"} <= labels
