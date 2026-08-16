@@ -26,8 +26,8 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert [item.label for item in app.sidebar.expander[:6]] == [
         "1. Demand and EV",
         "2. PV module and strings",
-        "3. Inverter and MPPT",
-        "4. Battery",
+        "3. PV inverter and MPPT",
+        "4. Battery and inverter/charger",
         "5. Grid, yield and economics",
         "6. Project context",
     ]
@@ -45,7 +45,7 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert advanced_configuration.value == "Solar only"
     advanced_configuration.set_value("Grid only / baseline").run()
     assert next(metric for metric in app.metric if metric.label == "Selected array").value == "0.00 kWp"
-    assert any("PV string and inverter checks are not applicable" in item.value for item in app.info)
+    assert any("PV string and PV inverter/MPPT checks are not applicable" in item.value for item in app.info)
 
 
 def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
@@ -208,4 +208,84 @@ def test_explicit_battery_capacity_controls_are_available_in_both_modes():
     nominal.set_value(14.0).run()
     assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.6 kWh usable"
     labels = {item.label for item in app.number_input}
-    assert {"Battery charge power limit (kW)", "Battery discharge power limit (kW)"} <= labels
+    assert {"AC battery charge power limit (kW)", "AC battery discharge power limit (kW)"} <= labels
+    app.radio[0].set_value("Simple").run()
+    assert next(item for item in app.number_input if item.label == "Battery size (kWh usable)").value == 12.5
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.5 kWh usable"
+
+
+def test_simple_configuration_activation_matrix_and_ev_storage_separation():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    assert [item.value for item in app.markdown].count("### Home battery storage") == 1
+    ev = next(item for item in app.number_input if item.label == "EV driving (miles/week)")
+    ev.set_value(250).run()
+    assert [item.value for item in app.markdown].count("### Home battery storage") == 1
+
+    expected = {
+        "Grid only / baseline": (False, False, "Not applicable"),
+        "Solar only": (True, False, "PV inverter"),
+        "Battery only": (False, True, "Battery inverter/charger"),
+        "Solar + battery": (True, True, "PV inverter"),
+        "Solar + battery + tariff optimisation": (True, True, "PV inverter"),
+    }
+    for title, (solar_active, battery_active, inverter_text) in expected.items():
+        next(item for item in app.selectbox if item.label == "System configuration").set_value(title).run()
+        roof = next(item for item in app.number_input if item.label == "Usable unshaded roof area (m²)")
+        battery = next(item for item in app.number_input if item.label == "Battery size (kWh usable)")
+        charger = next(item for item in app.number_input if item.label == "Battery inverter/charger power limit (kW)")
+        assert roof.disabled is (not solar_active)
+        assert battery.disabled is (not battery_active)
+        assert charger.disabled is (not battery_active)
+        inverter = next(item for item in app.metric if item.label == "Inverter / charger")
+        assert inverter_text in inverter.value
+
+
+def test_advanced_configuration_matrix_keeps_battery_inverter_active_without_pv():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    app.radio[0].set_value("Advanced").run()
+    expected = {
+        "Grid only / baseline": (False, False),
+        "Solar only": (True, False),
+        "Battery only": (False, True),
+        "Solar + battery": (True, True),
+        "Solar + battery + tariff optimisation": (True, True),
+    }
+    for title, (solar_active, battery_active) in expected.items():
+        next(item for item in app.selectbox if item.label == "System configuration").set_value(title).run()
+        panel = next(item for item in app.number_input if item.label == "Panel power (Wp)")
+        pv_inverter = next(item for item in app.number_input if item.label == "PV inverter rated AC output (kW)")
+        charge = next(item for item in app.number_input if item.label == "AC battery charge power limit (kW)")
+        discharge = next(item for item in app.number_input if item.label == "AC battery discharge power limit (kW)")
+        phases = next(item for item in app.selectbox if item.label == "Grid phases")
+        assert panel.disabled is (not solar_active)
+        assert pv_inverter.disabled is (not solar_active)
+        assert charge.disabled is (not battery_active)
+        assert discharge.disabled is (not battery_active)
+        assert phases.disabled is (not (solar_active or battery_active))
+
+
+def test_advanced_stored_values_restore_without_entering_inactive_results():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Solar + battery").run()
+    app.radio[0].set_value("Advanced").run()
+    panel = next(item for item in app.number_input if item.label == "Panel power (Wp)")
+    nominal = next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)")
+    panel.set_value(500).run()
+    nominal = next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)")
+    nominal.set_value(18.0).run()
+
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Battery only").run()
+    assert next(item for item in app.number_input if item.label == "Panel power (Wp)").value == 500
+    assert next(item for item in app.number_input if item.label == "Panel power (Wp)").disabled
+    assert next(metric for metric in app.metric if metric.label == "Selected array").value == "0.00 kWp"
+    assert next(metric for metric in app.metric if metric.label == "Annual generation").value == "0 kWh"
+
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Solar only").run()
+    assert next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)").value == 18.0
+    assert next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)").disabled
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "Battery disabled"
+
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Solar + battery").run()
+    assert next(item for item in app.number_input if item.label == "Panel power (Wp)").value == 500
+    assert next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)").value == 18.0
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "16.2 kWh usable"
