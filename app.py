@@ -10,7 +10,7 @@ from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quo
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
-APP_RELEASE = "affiliate-render-dedupe-2026-08"
+APP_RELEASE = "explicit-system-configurations-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -53,6 +53,7 @@ if mode == "Simple":
         export_tariff = st.number_input("Export tariff (p/kWh)", 0.0, 100.0, 15.0, 0.5)
         has_offpeak = st.checkbox("I have an off-peak import tariff")
         offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if has_offpeak else None
+        offpeak_window_hours = st.number_input("Off-peak charging window (hours/day)", 0.5, 12.0, 4.0, 0.5) if has_offpeak else 0.0
     with c2:
         orientation_label = st.selectbox("Main roof orientation", ["South", "South-east", "South-west", "East", "West", "North-east", "North-west", "North"])
         aspect_map = {"South": 0, "South-east": -45, "South-west": 45, "East": -90, "West": 90,
@@ -69,7 +70,16 @@ if mode == "Simple":
         else:
             max_panels = st.number_input("Approximate maximum panel count", 1, 100, 12)
         ev_miles_week = st.number_input("EV driving (miles/week)", 0.0, 2000.0, 0.0, 10.0)
-        wants_battery = st.checkbox("Include battery storage")
+        configuration_options = ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
+        if has_offpeak:
+            configuration_options.append("Solar + battery + tariff optimisation")
+        selected_configuration = st.selectbox("System configuration", configuration_options, index=1,
+            help="Choose exactly which technologies are included in the selected result. All available configurations are still compared below.")
+        selected_key = {
+            "Grid only / baseline": "grid", "Solar only": "solar", "Battery only": "battery_only",
+            "Solar + battery": "battery", "Solar + battery + tariff optimisation": "tariff",
+        }[selected_configuration]
+        wants_battery = selected_key in {"battery_only", "battery", "tariff"}
         knows_cost = st.checkbox("I have an estimated installed cost")
         installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if knows_cost else None
         battery_addon_cost = st.number_input("Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if knows_cost else None
@@ -94,34 +104,53 @@ if mode == "Simple":
         max_panels=int(max_panels), wants_battery=wants_battery, import_tariff_p=import_tariff,
         export_tariff_p=export_tariff, offpeak_tariff_p=offpeak_tariff,
         installed_cost_gbp=(installed_cost + battery_addon_cost if wants_battery and installed_cost is not None else installed_cost))
+    comparison_inputs = dict(
+        annual_demand_kwh=consumer.annual_demand_kwh,
+        ev_demand_kwh=consumer.ev_demand_kwh,
+        solar_kwp=consumer.array_kwp,
+        panels=consumer.panels,
+        specific_yield=specific_yield,
+        import_tariff_p=import_tariff,
+        export_tariff_p=export_tariff,
+        offpeak_tariff_p=offpeak_tariff,
+        solar_installed_cost_gbp=installed_cost,
+        battery_addon_cost_gbp=battery_addon_cost,
+        battery_usable_kwh=consumer.annual_demand_kwh / 365 * 0.6,
+        battery_charge_efficiency=0.95,
+        battery_discharge_efficiency=0.95,
+        battery_power_kw=5.0,
+        offpeak_window_hours=offpeak_window_hours or 4.0,
+    )
+    comparison = compare_system_scenarios(**comparison_inputs)
+    selected_scenario = next(item for item in comparison.scenarios if item.key == selected_key)
     record_event(st.session_state.events, "calculator_completed")
     if ev_miles_week > 0:
         recommendation_contexts.add("ev")
 
     st.subheader("Your headline estimate")
     r1, r2, r3 = st.columns(3)
-    r1.metric("Recommended solar array", f"{consumer.array_kwp:.1f} kWp", f"about {consumer.panels} × 440 W panels")
-    r2.metric("Estimated annual generation", f"{consumer.annual_generation_kwh:,.0f} kWh/year")
-    r3.metric("Estimated annual saving", f"£{consumer.annual_saving_gbp:,.0f}")
+    r1.metric("Selected solar array", f"{selected_scenario.solar_kwp:.1f} kWp", f"about {selected_scenario.panels} × 440 W panels" if selected_scenario.panels else "solar disabled")
+    r2.metric("Estimated annual generation", f"{selected_scenario.annual_generation_kwh:,.0f} kWh/year")
+    r3.metric("Estimated annual benefit", f"£{selected_scenario.annual_benefit_gbp:,.0f}")
     r4, r5, r6 = st.columns(3)
-    r4.metric("Suggested battery", f"{consumer.battery_low_kwh:.1f}–{consumer.battery_high_kwh:.1f} kWh" if wants_battery else "No battery selected")
-    r5.metric("Simple payback", f"{consumer.payback_years:.1f} years" if consumer.payback_years else "Add installed cost")
-    r6.metric("Suggested inverter range", f"{consumer.inverter_low_kw:.1f}–{consumer.inverter_high_kw:.1f} kW")
+    r4.metric("Selected battery", f"{selected_scenario.battery_usable_kwh:.1f} kWh usable" if wants_battery else "Battery disabled")
+    r5.metric("Simple payback", f"{selected_scenario.payback_years:.1f} years" if selected_scenario.payback_years else "Add installed costs")
+    r6.metric("Suggested inverter range", f"{consumer.inverter_low_kw:.1f}–{consumer.inverter_high_kw:.1f} kW" if selected_scenario.solar_kwp else "Solar disabled")
     st.caption("Annual saving is based on your entered tariffs and the assumptions described below; it is not a guaranteed bill reduction.")
 
     with st.expander("Energy and bill breakdown", expanded=True):
         rows = {
             "Annual demand (including EV)": f"{consumer.annual_demand_kwh:,.0f} kWh",
             "EV demand": f"{consumer.ev_demand_kwh:,.0f} kWh",
-            "Solar used in the home": f"{consumer.self_consumed_kwh:,.0f} kWh ({consumer.self_consumption_pct:.0f}% of generation)",
-            "Grid import after solar": f"{consumer.grid_import_kwh:,.0f} kWh",
-            "Solar export": f"{consumer.export_kwh:,.0f} kWh",
-            "Off-peak battery charging": f"{consumer.offpeak_charge_kwh:,.0f} kWh" if consumer.offpeak_charge_kwh else "Not modelled",
+            "Solar used in the home": f"{selected_scenario.self_consumed_kwh:,.0f} kWh ({selected_scenario.self_consumption_pct:.0f}% of generation)",
+            "Peak-rate grid import": f"{selected_scenario.peak_rate_import_kwh:,.0f} kWh",
+            "Total grid import": f"{selected_scenario.grid_import_kwh:,.0f} kWh",
+            "Solar export": f"{selected_scenario.export_kwh:,.0f} kWh",
+            "Off-peak battery charging": f"{selected_scenario.offpeak_import_kwh:,.0f} kWh" if selected_scenario.offpeak_import_kwh else "Not used",
             "Import cost before solar": f"£{consumer.before_cost_gbp:,.0f}/year",
-            "Value of self-consumed solar": f"£{consumer.self_consumed_value_gbp:,.0f}/year",
-            "Export income": f"£{consumer.export_income_gbp:,.0f}/year",
-            "Import cost after solar/tariff shifting": f"£{consumer.after_import_cost_gbp:,.0f}/year",
-            "Net annual cost after export income": f"£{consumer.after_net_cost_gbp:,.0f}/year",
+            "Export income": f"£{selected_scenario.export_kwh * export_tariff / 100:,.0f}/year",
+            "Grid import cost": f"£{(selected_scenario.peak_rate_import_kwh * import_tariff + selected_scenario.offpeak_import_kwh * (offpeak_tariff or 0)) / 100:,.0f}/year",
+            "Net annual cost after export income": f"£{selected_scenario.annual_electricity_cost_gbp:,.0f}/year",
         }
         for label, value in rows.items():
             st.write(f"**{label}:** {value}")
@@ -135,18 +164,6 @@ if mode == "Simple":
 - Off-peak modelling assumes some remaining import can be shifted through a battery at 90% delivery efficiency. It does not assume battery export income.
 - The inverter range is an initial DC/AC screening range. Equipment, phases, DNO route, clipping and backup loads require a competent designer.
 """)
-    comparison_inputs = dict(
-        annual_demand_kwh=consumer.annual_demand_kwh,
-        ev_demand_kwh=consumer.ev_demand_kwh,
-        solar_kwp=consumer.array_kwp,
-        panels=consumer.panels,
-        specific_yield=specific_yield,
-        import_tariff_p=import_tariff,
-        export_tariff_p=export_tariff,
-        offpeak_tariff_p=offpeak_tariff,
-        solar_installed_cost_gbp=installed_cost,
-        battery_addon_cost_gbp=battery_addon_cost,
-    )
     plan_inverter_low = consumer.inverter_low_kw
     plan_inverter_high = consumer.inverter_high_kw
 else:
@@ -183,6 +200,7 @@ else:
             st.caption("Chemistry is recorded for context; use the selected battery datasheet for usable capacity and current limits.")
             autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12)
             usable = st.slider("Usable battery fraction (%)", 20, 100, 90) / 100
+            charge_efficiency = st.slider("AC-to-battery efficiency (%)", 70, 100, 95) / 100
             discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94) / 100
             battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0)
             battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0)
@@ -197,10 +215,19 @@ else:
             advanced_export_tariff = st.number_input("Export tariff (p/kWh)", 0.0, 100.0, 15.0, 0.5)
             advanced_has_offpeak = st.checkbox("Model off-peak battery charging")
             advanced_offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if advanced_has_offpeak else None
+            advanced_offpeak_window = st.number_input("Off-peak charging window (hours/day)", 0.5, 12.0, 4.0, 0.5) if advanced_has_offpeak else 0.0
             advanced_has_cost = st.checkbox("Include installed cost for payback")
             advanced_cost = st.number_input("Solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if advanced_has_cost else None
             advanced_battery_cost = st.number_input("Battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if advanced_has_cost else None
         with st.expander("6. Project context", expanded=False):
+            advanced_configuration_options = ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
+            if advanced_has_offpeak:
+                advanced_configuration_options.append("Solar + battery + tariff optimisation")
+            advanced_configuration = st.selectbox("System configuration", advanced_configuration_options, index=3)
+            selected_key = {
+                "Grid only / baseline": "grid", "Solar only": "solar", "Battery only": "battery_only",
+                "Solar + battery": "battery", "Solar + battery + tariff optimisation": "tariff",
+            }[advanced_configuration]
             diy_context = st.checkbox(
                 "I am sourcing specialist solar/electrical installation materials",
                 help="Only use specialist tools and cable after a competent designer has specified the exact products and installation method.",
@@ -216,45 +243,6 @@ else:
         offpeak_tariff_p=advanced_offpeak_tariff,
         installed_cost_gbp=(advanced_cost + advanced_battery_cost if advanced_cost is not None else None),
         forced_array_kwp=result.array_kwp)
-
-    with st.container(border=True):
-        st.markdown("#### System overview")
-        cols = st.columns(4)
-        cols[0].metric("Array", f"{result.array_kwp:.2f} kWp", f"{series * parallel} panels")
-        cols[1].metric("Annual generation", f"{result.annual_generation_kwh:,.0f} kWh", f"average {result.average_generation_kwh_day:.1f} kWh/day")
-        cols[2].metric("Battery target", f"{result.battery_nominal_kwh:.1f} kWh nominal", chemistry)
-        cols[3].metric("Battery capability", f"≤ {result.battery_continuous_kw:.1f} kW", "battery/BMS and inverter limit")
-    with st.container(border=True):
-        st.markdown("#### String and inverter checks")
-        check_cols = st.columns(4)
-        check_cols[0].metric("Cold string Voc", f"{result.cold_string_voc:.0f} V")
-        check_cols[1].metric("Nominal string Vmp", f"{result.string_vmp:.0f} V")
-        check_cols[2].metric("Array Imp / Isc", f"{result.array_imp:.1f} / {result.array_isc:.1f} A")
-        check_cols[3].metric("DC/AC ratio", f"{result.dc_ac_ratio:.2f}")
-        for check in result.checks:
-            {"pass": st.success, "warn": st.warning, "fail": st.error}[check.level](f"**{check.title}:** {check.detail}")
-    with st.container(border=True):
-        st.markdown("#### Energy flow and economics")
-        flow_cols = st.columns(4)
-        flow_cols[0].metric("Estimated self-use", f"{advanced_finance.self_consumed_kwh:,.0f} kWh/year")
-        flow_cols[1].metric("Estimated grid import", f"{advanced_finance.grid_import_kwh:,.0f} kWh/year")
-        flow_cols[2].metric("Estimated export", f"{advanced_finance.export_kwh:,.0f} kWh/year")
-        flow_cols[3].metric("Estimated saving", f"£{advanced_finance.annual_saving_gbp:,.0f}/year")
-        st.caption("Savings use the entered tariffs and an annual self-consumption heuristic; half-hourly modelling is required for a firm forecast.")
-        if advanced_finance.payback_years:
-            st.metric("Simple payback", f"{advanced_finance.payback_years:.1f} years")
-    with st.container(border=True):
-        st.markdown("#### Grid and export route")
-        if export_limited:
-            st.info(f"Proposed export limit: {export_limit_kw:.2f} kW. An export limitation scheme requires appropriate design/commissioning and does not automatically change the G98/G99 application route.")
-        else:
-            st.write("No export limitation scheme selected; assess the complete generating installation against the DNO connection route.")
-    record_event(st.session_state.events, "calculator_completed")
-    if ev_miles > 0:
-        recommendation_contexts.add("ev")
-    if diy_context:
-        recommendation_contexts.add("diy")
-
     comparison_inputs = dict(
         annual_demand_kwh=advanced_finance.annual_demand_kwh,
         ev_demand_kwh=advanced_finance.ev_demand_kwh,
@@ -266,12 +254,62 @@ else:
         offpeak_tariff_p=advanced_offpeak_tariff,
         solar_installed_cost_gbp=advanced_cost,
         battery_addon_cost_gbp=advanced_battery_cost,
+        battery_usable_kwh=result.battery_nominal_kwh * usable,
+        battery_charge_efficiency=charge_efficiency,
+        battery_discharge_efficiency=discharge_efficiency,
+        battery_power_kw=result.battery_continuous_kw,
+        offpeak_window_hours=advanced_offpeak_window or 4.0,
     )
+    comparison = compare_system_scenarios(**comparison_inputs)
+    selected_scenario = next(item for item in comparison.scenarios if item.key == selected_key)
+
+    with st.container(border=True):
+        st.markdown("#### System overview")
+        cols = st.columns(4)
+        cols[0].metric("Selected array", f"{selected_scenario.solar_kwp:.2f} kWp", f"{selected_scenario.panels} panels" if selected_scenario.panels else "solar disabled")
+        cols[1].metric("Annual generation", f"{selected_scenario.annual_generation_kwh:,.0f} kWh")
+        cols[2].metric("Selected battery", f"{selected_scenario.battery_usable_kwh:.1f} kWh usable" if selected_scenario.battery_usable_kwh else "Battery disabled", chemistry if selected_scenario.battery_usable_kwh else None)
+        cols[3].metric("Battery capability", f"≤ {result.battery_continuous_kw:.1f} kW" if selected_scenario.battery_usable_kwh else "Battery disabled", "battery/BMS and inverter limit" if selected_scenario.battery_usable_kwh else None)
+    with st.container(border=True):
+        st.markdown("#### String and inverter checks")
+        if selected_scenario.solar_kwp:
+            check_cols = st.columns(4)
+            check_cols[0].metric("Cold string Voc", f"{result.cold_string_voc:.0f} V")
+            check_cols[1].metric("Nominal string Vmp", f"{result.string_vmp:.0f} V")
+            check_cols[2].metric("Array Imp / Isc", f"{result.array_imp:.1f} / {result.array_isc:.1f} A")
+            check_cols[3].metric("DC/AC ratio", f"{result.dc_ac_ratio:.2f}")
+            for check in result.checks:
+                {"pass": st.success, "warn": st.warning, "fail": st.error}[check.level](f"**{check.title}:** {check.detail}")
+        else:
+            st.info("Solar is disabled in the selected configuration, so PV string and inverter checks are not applicable.")
+    with st.container(border=True):
+        st.markdown("#### Energy flow and economics")
+        flow_cols = st.columns(4)
+        flow_cols[0].metric("Estimated self-use", f"{selected_scenario.self_consumed_kwh:,.0f} kWh/year")
+        flow_cols[1].metric("Peak-rate grid import", f"{selected_scenario.peak_rate_import_kwh:,.0f} kWh/year")
+        flow_cols[2].metric("Estimated export", f"{selected_scenario.export_kwh:,.0f} kWh/year")
+        flow_cols[3].metric("Estimated benefit", f"£{selected_scenario.annual_benefit_gbp:,.0f}/year")
+        st.caption("Savings use the entered tariffs and an annual self-consumption heuristic; half-hourly modelling is required for a firm forecast.")
+        st.write(f"Total grid import: **{selected_scenario.grid_import_kwh:,.0f} kWh/year**; estimated annual electricity cost after export: **£{selected_scenario.annual_electricity_cost_gbp:,.0f}**.")
+        if selected_scenario.payback_years:
+            st.metric("Simple payback", f"{selected_scenario.payback_years:.1f} years")
+    with st.container(border=True):
+        st.markdown("#### Grid and export route")
+        if not selected_scenario.solar_kwp:
+            st.write("No solar generating installation is included in the selected configuration.")
+        elif export_limited:
+            st.info(f"Proposed export limit: {export_limit_kw:.2f} kW. An export limitation scheme requires appropriate design/commissioning and does not automatically change the G98/G99 application route.")
+        else:
+            st.write("No export limitation scheme selected; assess the complete generating installation against the DNO connection route.")
+    record_event(st.session_state.events, "calculator_completed")
+    if ev_miles > 0:
+        recommendation_contexts.add("ev")
+    if diy_context:
+        recommendation_contexts.add("diy")
+
     plan_inverter_low = result.array_kwp * 0.75
     plan_inverter_high = result.array_kwp
 
-comparison = compare_system_scenarios(**comparison_inputs)
-battery_scenario = next(item for item in comparison.scenarios if item.key == "battery")
 strongest = next(item for item in comparison.scenarios if item.key == comparison.strongest_key)
 
 st.subheader("Compare system options")
@@ -285,17 +323,30 @@ for scenario in comparison.scenarios:
     comparison_rows.append({
         "Scenario": ("★ " if scenario.key == comparison.strongest_key else "") + scenario.title,
         "Solar": f"{scenario.solar_kwp:.1f} kWp",
-        "Battery": (f"{scenario.battery_low_kwh:.1f}–{scenario.battery_high_kwh:.1f} kWh" if scenario.battery_high_kwh else "None"),
+        "Battery": (f"{scenario.battery_usable_kwh:.1f} kWh usable" if scenario.battery_usable_kwh else "None"),
         "Generation": f"{scenario.annual_generation_kwh:,.0f} kWh",
         "Self-consumption": f"{scenario.self_consumption_pct:.0f}%",
-        "Grid import": f"{scenario.grid_import_kwh:,.0f} kWh",
+        "Peak import": f"{scenario.peak_rate_import_kwh:,.0f} kWh",
+        "Off-peak charge": f"{scenario.offpeak_import_kwh:,.0f} kWh",
+        "Total import": f"{scenario.grid_import_kwh:,.0f} kWh",
         "Export": f"{scenario.export_kwh:,.0f} kWh",
+        "Annual electricity cost": f"£{scenario.annual_electricity_cost_gbp:,.0f}",
         "Annual benefit": f"£{scenario.annual_benefit_gbp:,.0f}",
         "Installed cost": (f"£{scenario.installed_cost_gbp:,.0f}" if scenario.installed_cost_gbp is not None else "Not supplied"),
         "Simple payback": (f"{scenario.payback_years:.1f} years" if scenario.payback_years is not None else "Not available"),
     })
 st.dataframe(comparison_rows, hide_index=True, use_container_width=True)
-st.caption("Comparison uses one demand total (including EV once), the same solar array in every row, 90% battery round-trip efficiency, up to 250 equivalent solar-shifting cycles/year, and an annual load-timing heuristic. Tariff optimisation screens up to 20% of remaining import when the off-peak rate still wins after losses. This is not a half-hourly dispatch forecast.")
+if not comparison.tariff_optimisation_applicable:
+    st.info(comparison.tariff_optimisation_reason)
+    st.info("Battery only matches the grid baseline because no off-peak charging tariff is configured; an uncharged battery cannot shift grid import.")
+else:
+    battery_only_scenario = next(item for item in comparison.scenarios if item.key == "battery_only")
+    if battery_only_scenario.grid_battery_charge_kwh == 0:
+        st.info("Battery only matches the grid baseline because the configured off-peak price is not economical after battery losses, so no grid charging is scheduled.")
+    tariff_scenario = next(item for item in comparison.scenarios if item.key == "tariff")
+    if tariff_scenario.grid_battery_charge_kwh == 0:
+        st.info("Tariff optimisation matches Solar + battery because the off-peak price is not cheaper after battery losses, so no grid charging is scheduled.")
+st.caption("Comparison includes EV demand once and constrains battery charging by usable capacity, charge/discharge efficiency, battery power and the entered off-peak window. Solar shifting uses up to 250 equivalent cycles/year. This remains an annual screening model, not a half-hourly dispatch forecast.")
 
 with st.expander("Optional half-hourly smart-meter CSV", expanded=False):
     st.write("Upload a CSV with `timestamp` and `consumption_kWh` columns. Octopus-style `Start` and `Consumption (kWh)` columns are also supported.")
@@ -312,12 +363,13 @@ with st.expander("Optional half-hourly smart-meter CSV", expanded=False):
 st.subheader("Your solar plan")
 plan_text = "\n".join((
     "Your solar plan",
-    f"Solar: {strongest.solar_kwp:.1f} kWp (approximately {strongest.panels} panels)",
-    f"Inverter range: {plan_inverter_low:.1f}–{plan_inverter_high:.1f} kW",
-    f"Suggested battery range: {battery_scenario.battery_low_kwh:.1f}–{battery_scenario.battery_high_kwh:.1f} kWh",
-    f"Annual generation: {strongest.annual_generation_kwh:,.0f} kWh",
-    f"Estimated annual financial benefit: £{strongest.annual_benefit_gbp:,.0f}",
-    f"Estimated simple payback: {strongest.payback_years:.1f} years" if strongest.payback_years is not None else "Estimated simple payback: add installed costs to calculate",
+    f"Selected configuration: {selected_scenario.title}",
+    f"Solar: {selected_scenario.solar_kwp:.1f} kWp (approximately {selected_scenario.panels} panels)" if selected_scenario.solar_kwp else "Solar: disabled",
+    f"Inverter range: {plan_inverter_low:.1f}–{plan_inverter_high:.1f} kW" if selected_scenario.solar_kwp else "Solar inverter range: not applicable",
+    f"Battery: {selected_scenario.battery_usable_kwh:.1f} kWh usable" if selected_scenario.battery_usable_kwh else "Battery: disabled",
+    f"Annual generation: {selected_scenario.annual_generation_kwh:,.0f} kWh",
+    f"Estimated annual financial benefit: £{selected_scenario.annual_benefit_gbp:,.0f}",
+    f"Estimated simple payback: {selected_scenario.payback_years:.1f} years" if selected_scenario.payback_years is not None else "Estimated simple payback: add installed costs to calculate",
     "Early-stage estimate only; verify design, costs and permissions with competent professionals.",
 ))
 with st.container(border=True):

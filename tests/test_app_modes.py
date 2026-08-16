@@ -7,7 +7,9 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert not app.exception
     assert app.radio[0].label == "Calculator mode"
     assert app.radio[0].value == "Simple"
-    assert any(metric.label == "Recommended solar array" for metric in app.metric)
+    assert any(metric.label == "Selected solar array" for metric in app.metric)
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    assert configuration.value == "Solar only"
     assert any(item.value == "Compare system options" for item in app.subheader)
     assert any(item.value == "Your solar plan" for item in app.subheader)
     assert app.file_uploader[0].label == "Half-hourly consumption CSV"
@@ -34,7 +36,12 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     panel_power.set_value(500).run()
     assert not app.exception
     assert app.radio[0].value == "Advanced"
-    assert next(metric for metric in app.metric if metric.label == "Array").value == "5.00 kWp"
+    assert next(metric for metric in app.metric if metric.label == "Selected array").value == "5.00 kWp"
+    advanced_configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    assert advanced_configuration.value == "Solar + battery"
+    advanced_configuration.set_value("Grid only / baseline").run()
+    assert next(metric for metric in app.metric if metric.label == "Selected array").value == "0.00 kWp"
+    assert any("PV string and inverter checks are not applicable" in item.value for item in app.info)
 
 
 def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
@@ -96,3 +103,35 @@ def test_smart_meter_upload_is_validated_in_the_streamlit_ui():
     assert not app.exception
     assert any("Validated 2 consecutive half-hourly readings" in item.value for item in app.success)
     assert any("Interval battery dispatch is intentionally not enabled" in item.value for item in app.info)
+
+
+def test_explicit_system_configurations_control_simple_results_and_tariff_availability():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    assert configuration.options == ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
+    assert len(app.dataframe[0].value) == 4
+    assert any("Add an off-peak tariff" in item.value for item in app.info)
+
+    configuration.set_value("Grid only / baseline").run()
+    assert next(metric for metric in app.metric if metric.label == "Selected solar array").value == "0.0 kWp"
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "Battery disabled"
+
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    configuration.set_value("Battery only").run()
+    assert next(metric for metric in app.metric if metric.label == "Selected solar array").value == "0.0 kWp"
+    assert "usable" in next(metric for metric in app.metric if metric.label == "Selected battery").value
+
+    has_offpeak = next(item for item in app.checkbox if item.label == "I have an off-peak import tariff")
+    has_offpeak.set_value(True).run()
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    assert "Solar + battery + tariff optimisation" in configuration.options
+    assert len(app.dataframe[0].value) == 5
+    configuration.set_value("Solar + battery + tariff optimisation").run()
+    assert "Selected configuration: Solar + battery + tariff optimisation" in app.code[0].value
+
+    rows = app.dataframe[0].value.set_index("Scenario")
+    battery_row = next(index for index in rows.index if "Solar + battery" in index and "tariff" not in index)
+    tariff_row = next(index for index in rows.index if "tariff optimisation" in index)
+    assert rows.loc[battery_row, "Off-peak charge"] == "0 kWh"
+    assert rows.loc[tariff_row, "Off-peak charge"] != "0 kWh"
+    assert rows.loc[battery_row, "Annual electricity cost"] != rows.loc[tariff_row, "Annual electricity cost"]

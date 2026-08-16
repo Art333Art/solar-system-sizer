@@ -2,7 +2,7 @@
 
 A consumer-first Streamlit feasibility calculator for UK domestic solar PV, batteries, inverters and EV demand. Simple mode uses cached postcode and PVGIS data; Advanced mode retains datasheet, MPPT, grid and manual-yield controls.
 
-Results include a consistent solar-only, solar-plus-battery and tariff-optimised comparison. An optional local/in-session CSV parser validates canonical and Octopus-style half-hourly consumption exports. Interval dispatch is deliberately not used yet; until that model has dedicated validation, financial comparisons remain clearly labelled annual screening estimates.
+Results compare grid-only, solar-only, battery-only, solar-plus-battery and—when an off-peak tariff is supplied—tariff-optimised operation. Explicit configuration controls keep solar and storage optional. Battery grid charging is constrained by usable capacity, efficiency, power and the entered off-peak window. An optional local/in-session CSV parser validates canonical and Octopus-style half-hourly consumption exports. Interval dispatch is deliberately not used yet; until that model has dedicated validation, financial comparisons remain clearly labelled annual screening estimates.
 
 **Live app:** [UK Solar & Battery System Sizer](https://share.streamlit.io/art333art/solar-system-sizer/main/app.py)
 
