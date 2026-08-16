@@ -351,11 +351,26 @@ else:
 
     with st.container(border=True):
         st.markdown("#### System overview")
-        cols = st.columns(4)
+        cols = st.columns(3)
         cols[0].metric("Selected array", f"{selected_scenario.solar_kwp:.2f} kWp", f"{selected_scenario.panels} panels" if selected_scenario.panels else "solar disabled")
         cols[1].metric("Annual generation", f"{selected_scenario.annual_generation_kwh:,.0f} kWh")
         cols[2].metric("Selected battery", f"{selected_scenario.battery_usable_kwh:.1f} kWh usable" if selected_scenario.battery_usable_kwh else "Battery disabled", chemistry if selected_scenario.battery_usable_kwh else None)
-        cols[3].metric("Battery capability", f"≤ {result.battery_continuous_kw:.1f} kW" if selected_scenario.battery_usable_kwh else "Battery disabled", "battery/BMS and inverter limit" if selected_scenario.battery_usable_kwh else None)
+        capability_cols = st.columns(3)
+        raw_battery_limit_kw = battery_v * battery_a / 1000
+        battery_selected = selected_scenario.battery_usable_kwh > 0
+        capability_cols[0].metric(
+            "Battery charge capability",
+            f"≤ {min(raw_battery_limit_kw, battery_charge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+        )
+        capability_cols[1].metric(
+            "Battery discharge capability",
+            f"≤ {min(raw_battery_limit_kw, battery_discharge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+        )
+        capability_cols[2].metric(
+            "Battery/BMS raw limit",
+            f"{raw_battery_limit_kw:.1f} kW" if battery_selected else "Not applicable",
+            "before inverter/charger limits" if battery_selected else None,
+        )
     with st.container(border=True):
         st.markdown("#### PV string and inverter checks")
         if selected_scenario.solar_kwp:

@@ -289,3 +289,17 @@ def test_advanced_stored_values_restore_without_entering_inactive_results():
     assert next(item for item in app.number_input if item.label == "Panel power (Wp)").value == 500
     assert next(item for item in app.number_input if item.label == "Installed battery capacity (kWh nominal)").value == 18.0
     assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "16.2 kWh usable"
+
+
+def test_advanced_overview_separates_charge_discharge_and_raw_bms_limits():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    next(item for item in app.selectbox if item.label == "System configuration").set_value("Battery only").run()
+    app.radio[0].set_value("Advanced").run()
+    next(item for item in app.number_input if item.label == "Battery nominal voltage (V)").set_value(100.0).run()
+    next(item for item in app.number_input if item.label == "Battery/BMS continuous current (A)").set_value(100.0).run()
+    next(item for item in app.number_input if item.label == "AC battery charge power limit (kW)").set_value(5.0).run()
+    next(item for item in app.number_input if item.label == "AC battery discharge power limit (kW)").set_value(8.0).run()
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["Battery charge capability"] == "≤ 5.0 kW"
+    assert metrics["Battery discharge capability"] == "≤ 8.0 kW"
+    assert metrics["Battery/BMS raw limit"] == "10.0 kW"
