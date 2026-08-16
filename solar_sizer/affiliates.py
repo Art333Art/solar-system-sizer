@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AffiliateOffer:
-    key: str
+    product_id: str
     title: str
     description: str
     url: str
@@ -11,57 +11,62 @@ class AffiliateOffer:
     network: str
     required_contexts: frozenset[str]
 
+    @property
+    def key(self) -> str:
+        """Backward-compatible alias for existing outbound event keys."""
+        return self.product_id
+
 
 # Approval state is deliberately explicit. The UI only reads enabled entries
 # whose calculation context matches their intended audience.
 AFFILIATE_OFFERS = (
     AffiliateOffer(
-        key="amazon_electricals",
-        title="16 mm² three-core SWA cable listing",
-        description="Only relevant when this exact cable type and size has already been specified by a competent designer. This calculator does not size AC cables.",
+        product_id="amazon_electricals",
+        title="16 mm² 3-core SWA cable",
+        description="An SWA cable example; cable sizing must be determined for the actual installation.",
         url="https://link.amazon/B05z6RNmr",
         enabled=True,
         network="Amazon UK Associates",
         required_contexts=frozenset({"advanced", "diy"}),
     ),
     AffiliateOffer(
-        key="amazon_ev_charger",
+        product_id="amazon_ev_charger",
         title="VORSPRUNG Alpha Max 7.4 kW EV charger",
-        description="Relevant to home EV charging. Vehicle, supply, earthing, load management, smart-charge compliance and installation compatibility must be checked by a competent installer.",
+        description="A tethered 7.4 kW home charger for compatible Type 2 electric vehicles.",
         url="https://link.amazon/B03Lpp2EH",
         enabled=True,
         network="Amazon UK Associates",
         required_contexts=frozenset({"ev"}),
     ),
     AffiliateOffer(
-        key="amazon_ev_cable",
-        title="Type 2 EV charging cable listing",
-        description="Relevant to Type 2 EV users. The supplied link currently resolves to a GONEO listing rather than bokman. Check the current seller and product before buying; charging speed is limited by the vehicle, charge point, cable and electrical supply.",
+        product_id="amazon_ev_cable",
+        title="bokman Type 2 EV cable",
+        description="A portable Type 2 charging cable for compatible vehicles and charge points.",
         url="https://link.amazon/B04LIcvRh",
-        enabled=True,
-        network="Amazon UK Associates",
+        enabled=False,
+        network="Disabled: supplied URL resolves to a different product",
         required_contexts=frozenset({"ev"}),
     ),
     AffiliateOffer(
-        key="amazon_solar_tools",
+        product_id="amazon_solar_tools",
         title="SOMELINE solar crimping kit",
-        description="An Advanced/DIY tool kit only. Included connectors are not proof of compatibility: use the exact connector family and manufacturer-approved tooling specified for the installation.",
+        description="A compact crimping and assembly kit for compatible solar connectors.",
         url="https://link.amazon/B0f4YmGAU",
         enabled=True,
         network="Amazon UK Associates",
         required_contexts=frozenset({"advanced", "diy"}),
     ),
     AffiliateOffer(
-        key="amazon_energy_monitor",
+        product_id="amazon_energy_monitor",
         title="OWON 80A 2-clamp bi-directional energy monitor",
-        description="Relevant for observing household import, export and self-consumption. Installation around mains conductors must follow the manufacturer instructions and be completed without unqualified access to live electrical equipment.",
+        description="A two-clamp monitor for viewing household electricity import, export and consumption.",
         url="https://link.amazon/B0fdrsDTb",
         enabled=True,
         network="Amazon UK Associates",
         required_contexts=frozenset({"monitoring"}),
     ),
     AffiliateOffer(
-        key="bimble_inverters",
+        product_id="bimble_inverters",
         title="Hybrid inverters",
         description="High-voltage string and hybrid inverter products.",
         url="https://www.bimblesolar.com/",
@@ -70,7 +75,7 @@ AFFILIATE_OFFERS = (
         required_contexts=frozenset(),
     ),
     AffiliateOffer(
-        key="bimble_batteries",
+        product_id="bimble_batteries",
         title="Battery storage kits",
         description="New and second-life battery storage products.",
         url="https://www.bimblesolar.com/",
@@ -88,21 +93,30 @@ def enabled_affiliate_offers(contexts: set[str] | None = None) -> tuple[Affiliat
     return tuple(offer for offer in enabled if offer.required_contexts <= contexts)
 
 
-def prominent_affiliate_offers(contexts: set[str]) -> tuple[AffiliateOffer, ...]:
-    """Context-matched offers, excluding cable that must never be generic advice."""
-    return tuple(
-        offer for offer in enabled_affiliate_offers(contexts)
-        if offer.key != "amazon_electricals"
-    )
-
-
-def discoverable_affiliate_offers(mode: str) -> tuple[AffiliateOffer, ...]:
-    """Small mode-appropriate catalogue; context still controls prominence."""
-    keys = {
-        "Simple": {"amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor"},
-        "Advanced": {
-            "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
-            "amazon_solar_tools", "amazon_energy_monitor",
-        },
+def affiliate_products_for_page(mode: str, contexts: set[str]) -> tuple[AffiliateOffer, ...]:
+    """Return one deduplicated, context-ordered product list for the page."""
+    enabled_amazon = {
+        offer.product_id: offer for offer in enabled_affiliate_offers()
+        if offer.network == "Amazon UK Associates"
     }
-    return tuple(offer for offer in enabled_affiliate_offers() if offer.key in keys.get(mode, set()))
+    visible_ids = {"amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor"}
+    if mode == "Advanced" and {"advanced", "diy"} <= contexts:
+        visible_ids.update({"amazon_solar_tools", "amazon_electricals"})
+
+    priority: list[str] = []
+    if "ev" in contexts:
+        priority.extend(("amazon_ev_charger", "amazon_ev_cable"))
+    if mode == "Advanced" and "diy" in contexts:
+        priority.extend(("amazon_solar_tools", "amazon_electricals"))
+    if "monitoring" in contexts:
+        priority.append("amazon_energy_monitor")
+    priority.extend(("amazon_energy_monitor", "amazon_ev_charger", "amazon_ev_cable",
+                     "amazon_solar_tools", "amazon_electricals"))
+
+    seen: set[str] = set()
+    products: list[AffiliateOffer] = []
+    for product_id in priority:
+        if product_id in visible_ids and product_id in enabled_amazon and product_id not in seen:
+            products.append(enabled_amazon[product_id])
+            seen.add(product_id)
+    return tuple(products)

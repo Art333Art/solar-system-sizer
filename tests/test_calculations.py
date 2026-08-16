@@ -3,8 +3,7 @@ import pytest
 from solar_sizer.calculations import calculate_cold_voc, calculate_system
 from solar_sizer.models import BatteryInputs, LoadInputs, SolarInputs
 from solar_sizer.affiliates import (
-    AFFILIATE_OFFERS, discoverable_affiliate_offers, enabled_affiliate_offers,
-    prominent_affiliate_offers,
+    AFFILIATE_OFFERS, affiliate_products_for_page, enabled_affiliate_offers,
 )
 from solar_sizer.consumer import calculate_consumer_result
 
@@ -63,23 +62,26 @@ def test_invalid_positive_values_are_rejected():
 def test_only_approved_amazon_affiliates_are_public():
     enabled = enabled_affiliate_offers()
     assert [offer.key for offer in enabled] == [
-        "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
-        "amazon_solar_tools", "amazon_energy_monitor",
+        "amazon_electricals", "amazon_ev_charger", "amazon_solar_tools",
+        "amazon_energy_monitor",
     ]
     assert {offer.key: offer.url for offer in enabled} == {
         "amazon_electricals": "https://link.amazon/B05z6RNmr",
         "amazon_ev_charger": "https://link.amazon/B03Lpp2EH",
-        "amazon_ev_cable": "https://link.amazon/B04LIcvRh",
         "amazon_solar_tools": "https://link.amazon/B0f4YmGAU",
         "amazon_energy_monitor": "https://link.amazon/B0fdrsDTb",
     }
-    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 2
+    disabled_cable = next(offer for offer in AFFILIATE_OFFERS if offer.product_id == "amazon_ev_cable")
+    assert not disabled_cable.enabled
+    assert disabled_cable.url == "https://link.amazon/B04LIcvRh"
+    assert sum(not offer.enabled for offer in AFFILIATE_OFFERS) == 3
+    assert len({offer.product_id for offer in AFFILIATE_OFFERS}) == len(AFFILIATE_OFFERS)
 
 
 def test_affiliates_are_filtered_by_calculator_context():
     assert [offer.key for offer in enabled_affiliate_offers({"monitoring"})] == ["amazon_energy_monitor"]
     assert [offer.key for offer in enabled_affiliate_offers({"monitoring", "ev"})] == [
-        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
+        "amazon_ev_charger", "amazon_energy_monitor",
     ]
     assert [offer.key for offer in enabled_affiliate_offers({"advanced", "monitoring"})] == [
         "amazon_energy_monitor",
@@ -90,22 +92,27 @@ def test_affiliates_are_filtered_by_calculator_context():
 
 
 def test_context_controls_prominence_while_mode_controls_discovery():
-    assert [offer.key for offer in prominent_affiliate_offers({"monitoring"})] == [
-        "amazon_energy_monitor",
+    simple = affiliate_products_for_page("Simple", {"monitoring"})
+    assert [offer.product_id for offer in simple] == ["amazon_energy_monitor", "amazon_ev_charger"]
+    simple_ev = affiliate_products_for_page("Simple", {"monitoring", "ev"})
+    assert [offer.product_id for offer in simple_ev] == ["amazon_ev_charger", "amazon_energy_monitor"]
+    advanced = affiliate_products_for_page("Advanced", {"advanced", "diy", "monitoring"})
+    assert [offer.product_id for offer in advanced] == [
+        "amazon_solar_tools", "amazon_electricals", "amazon_energy_monitor", "amazon_ev_charger",
     ]
-    assert [offer.key for offer in prominent_affiliate_offers({"ev", "monitoring"})] == [
-        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
-    ]
-    assert [offer.key for offer in prominent_affiliate_offers({"advanced", "diy", "monitoring"})] == [
-        "amazon_solar_tools", "amazon_energy_monitor",
-    ]
-    assert [offer.key for offer in discoverable_affiliate_offers("Simple")] == [
-        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
-    ]
-    assert [offer.key for offer in discoverable_affiliate_offers("Advanced")] == [
-        "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
-        "amazon_solar_tools", "amazon_energy_monitor",
-    ]
+    assert len({offer.product_id for offer in advanced}) == len(advanced)
+    assert "amazon_ev_cable" not in {offer.product_id for offer in advanced}
+
+
+def test_swa_remains_available_only_in_advanced_diy_context():
+    assert "amazon_electricals" not in {
+        offer.product_id for offer in affiliate_products_for_page("Advanced", {"advanced", "monitoring"})
+    }
+    swa = next(
+        offer for offer in affiliate_products_for_page("Advanced", {"advanced", "diy", "monitoring"})
+        if offer.product_id == "amazon_electricals"
+    )
+    assert swa.url == "https://link.amazon/B05z6RNmr"
 
 
 def test_equivalent_simple_and_advanced_inputs_have_consistent_core_results():

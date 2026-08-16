@@ -1,7 +1,7 @@
 import streamlit as st
 
 from solar_sizer import BatteryInputs, LoadInputs, SolarInputs, calculate_system
-from solar_sizer.affiliates import discoverable_affiliate_offers, prominent_affiliate_offers
+from solar_sizer.affiliates import affiliate_products_for_page
 from solar_sizer.analytics import record_event
 from solar_sizer.comparison import compare_system_scenarios
 from solar_sizer.content import BUYING_GUIDES
@@ -10,7 +10,7 @@ from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quo
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
-APP_RELEASE = "scenario-smart-meter-2026-08"
+APP_RELEASE = "affiliate-render-dedupe-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -351,31 +351,17 @@ for guide_title, guide_body in BUYING_GUIDES.items():
     with st.expander(guide_title):
         st.markdown(guide_body)
 
-recommended_offers = prominent_affiliate_offers(recommendation_contexts)
-if recommended_offers:
-    st.subheader("Recommended for your inputs")
-    st.write("Commercial links do not influence system sizing, compatibility checks or safety warnings.")
-    for offer in recommended_offers:
-        with st.expander(offer.title):
-            st.warning(offer.description)
-            st.markdown(f"[Open tracked Amazon UK listing](?out={offer.key})")
-    st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
-
-discoverable_offers = discoverable_affiliate_offers(mode)
-catalogue_title = "Useful solar & EV products" if mode == "Simple" else "Products & technical resources"
-with st.expander(catalogue_title, expanded=False):
-    st.caption("Optional commercial resources. These links do not influence any calculation, compatibility check or safety result.")
-    for offer in discoverable_offers:
+page_products = affiliate_products_for_page(mode, recommendation_contexts)
+with st.expander("Useful solar & EV products", expanded=False):
+    for offer in page_products:
         st.markdown(f"**{offer.title}**")
-        if offer.key == "amazon_electricals":
-            st.warning("Qualified example only — not a cable-size recommendation. Consider this listing only if a competent designer has already specified this exact 16 mm² three-core SWA type and size.")
-        else:
-            st.write(offer.description)
-        st.markdown(f"[View tracked Amazon UK listing](?out={offer.key})")
+        st.write(offer.description)
+        st.markdown(f"[Check on Amazon UK →](?out={offer.product_id})")
+    st.caption("Check product compatibility and installation requirements before buying. Electrical installation may require a qualified installer.")
     st.caption("As an Amazon Associate I earn from qualifying purchases. Affiliate links may earn us a commission at no extra cost to you.")
 
 outbound_key = st.query_params.get("out")
-enabled_by_key = {offer.key: offer for offer in discoverable_offers}
+enabled_by_key = {offer.product_id: offer for offer in page_products}
 if outbound_key in enabled_by_key:
     record_event(st.session_state.events, "affiliate_clicked")
     outbound_offer = enabled_by_key[outbound_key]
