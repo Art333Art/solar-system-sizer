@@ -35,8 +35,8 @@ AFFILIATE_OFFERS = (
     ),
     AffiliateOffer(
         key="amazon_ev_cable",
-        title="bokman Type 2 EV cable",
-        description="Relevant to Type 2 EV users. A cable marketed for up to 22 kW will charge only at the lowest limit of the vehicle, charge point, cable and electrical supply.",
+        title="Type 2 EV charging cable listing",
+        description="Relevant to Type 2 EV users. The supplied link currently resolves to a GONEO listing rather than bokman. Check the current seller and product before buying; charging speed is limited by the vehicle, charge point, cable and electrical supply.",
         url="https://link.amazon/B04LIcvRh",
         enabled=True,
         network="Amazon UK Associates",
@@ -86,3 +86,23 @@ def enabled_affiliate_offers(contexts: set[str] | None = None) -> tuple[Affiliat
     if contexts is None:
         return enabled
     return tuple(offer for offer in enabled if offer.required_contexts <= contexts)
+
+
+def prominent_affiliate_offers(contexts: set[str]) -> tuple[AffiliateOffer, ...]:
+    """Context-matched offers, excluding cable that must never be generic advice."""
+    return tuple(
+        offer for offer in enabled_affiliate_offers(contexts)
+        if offer.key != "amazon_electricals"
+    )
+
+
+def discoverable_affiliate_offers(mode: str) -> tuple[AffiliateOffer, ...]:
+    """Small mode-appropriate catalogue; context still controls prominence."""
+    keys = {
+        "Simple": {"amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor"},
+        "Advanced": {
+            "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
+            "amazon_solar_tools", "amazon_energy_monitor",
+        },
+    }
+    return tuple(offer for offer in enabled_affiliate_offers() if offer.key in keys.get(mode, set()))

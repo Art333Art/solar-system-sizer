@@ -34,16 +34,51 @@ def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
     simple_expanders = [item.label for item in app.expander]
     assert "OWON 80A 2-clamp bi-directional energy monitor" in simple_expanders
     assert "VORSPRUNG Alpha Max 7.4 kW EV charger" not in simple_expanders
+    assert "Type 2 EV charging cable listing" not in simple_expanders
     assert "16 mm² three-core SWA cable listing" not in simple_expanders
-    assert "Anonymous session activity" not in str(app)
-    assert "recorded anonymously" not in str(app)
+    assert "Useful solar & EV products" in simple_expanders
+    simple_page = "\n".join(item.value for item in app.markdown)
+    assert "VORSPRUNG Alpha Max 7.4 kW EV charger" in simple_page
+    assert "Type 2 EV charging cable listing" in simple_page
+    assert "OWON 80A 2-clamp bi-directional energy monitor" in simple_page
+    assert "SOMELINE solar crimping kit" not in simple_page
+    assert "16 mm² three-core SWA cable listing" not in simple_page
+    assert "Anonymous session activity" not in simple_page
+    assert "recorded anonymously" not in simple_page
+    for key in ("amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor"):
+        assert f"?out={key}" in simple_page
+
+    ev_miles = next(item for item in app.number_input if item.label == "EV driving (miles/week)")
+    ev_miles.set_value(100).run()
+    simple_ev_expanders = [item.label for item in app.expander]
+    assert "VORSPRUNG Alpha Max 7.4 kW EV charger" in simple_ev_expanders
+    assert "Type 2 EV charging cable listing" in simple_ev_expanders
 
     app.radio[0].set_value("Advanced").run()
     advanced_expanders = [item.label for item in app.expander]
     assert "VORSPRUNG Alpha Max 7.4 kW EV charger" in advanced_expanders
-    assert "bokman Type 2 EV cable" in advanced_expanders
+    assert "Type 2 EV charging cable listing" in advanced_expanders
     assert "16 mm² three-core SWA cable listing" not in advanced_expanders
     assert "SOMELINE solar crimping kit" not in advanced_expanders
+    assert "Products & technical resources" in advanced_expanders
+    advanced_page = "\n".join(
+        [item.value for item in app.markdown]
+        + [item.value for item in app.warning]
+    )
+    for title in (
+        "16 mm² three-core SWA cable listing",
+        "VORSPRUNG Alpha Max 7.4 kW EV charger",
+        "Type 2 EV charging cable listing",
+        "SOMELINE solar crimping kit",
+        "OWON 80A 2-clamp bi-directional energy monitor",
+    ):
+        assert title in advanced_page
+    assert "Qualified example only" in advanced_page
+    for key in (
+        "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
+        "amazon_solar_tools", "amazon_energy_monitor",
+    ):
+        assert f"?out={key}" in advanced_page
 
     sourcing = next(
         item for item in app.checkbox
@@ -51,5 +86,5 @@ def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
     )
     sourcing.set_value(True).run()
     sourced_expanders = [item.label for item in app.expander]
-    assert "16 mm² three-core SWA cable listing" in sourced_expanders
     assert "SOMELINE solar crimping kit" in sourced_expanders
+    assert "16 mm² three-core SWA cable listing" not in sourced_expanders

@@ -2,7 +2,10 @@ import pytest
 
 from solar_sizer.calculations import calculate_cold_voc, calculate_system
 from solar_sizer.models import BatteryInputs, LoadInputs, SolarInputs
-from solar_sizer.affiliates import AFFILIATE_OFFERS, enabled_affiliate_offers
+from solar_sizer.affiliates import (
+    AFFILIATE_OFFERS, discoverable_affiliate_offers, enabled_affiliate_offers,
+    prominent_affiliate_offers,
+)
 from solar_sizer.consumer import calculate_consumer_result
 
 
@@ -83,6 +86,25 @@ def test_affiliates_are_filtered_by_calculator_context():
     ]
     assert [offer.key for offer in enabled_affiliate_offers({"advanced", "diy", "monitoring"})] == [
         "amazon_electricals", "amazon_solar_tools", "amazon_energy_monitor",
+    ]
+
+
+def test_context_controls_prominence_while_mode_controls_discovery():
+    assert [offer.key for offer in prominent_affiliate_offers({"monitoring"})] == [
+        "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in prominent_affiliate_offers({"ev", "monitoring"})] == [
+        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in prominent_affiliate_offers({"advanced", "diy", "monitoring"})] == [
+        "amazon_solar_tools", "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in discoverable_affiliate_offers("Simple")] == [
+        "amazon_ev_charger", "amazon_ev_cable", "amazon_energy_monitor",
+    ]
+    assert [offer.key for offer in discoverable_affiliate_offers("Advanced")] == [
+        "amazon_electricals", "amazon_ev_charger", "amazon_ev_cable",
+        "amazon_solar_tools", "amazon_energy_monitor",
     ]
 
 
