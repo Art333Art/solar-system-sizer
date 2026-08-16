@@ -8,6 +8,11 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert app.radio[0].label == "Calculator mode"
     assert app.radio[0].value == "Simple"
     assert any(metric.label == "Recommended solar array" for metric in app.metric)
+    assert any(item.value == "Compare system options" for item in app.subheader)
+    assert any(item.value == "Your solar plan" for item in app.subheader)
+    assert app.file_uploader[0].label == "Half-hourly consumption CSV"
+    assert len(app.dataframe) == 1
+    assert "Estimated annual financial benefit" in app.code[0].value
 
     app.radio[0].set_value("Advanced").run()
     assert not app.exception
@@ -21,6 +26,9 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
         "6. Project context",
     ]
     assert any(metric.label == "Cold string Voc" for metric in app.metric)
+    assert any(item.value == "Compare system options" for item in app.subheader)
+    assert len(app.dataframe) == 1
+    assert "Your solar plan" in app.code[0].value
 
     panel_power = next(item for item in app.number_input if item.label == "Panel power (Wp)")
     panel_power.set_value(500).run()
@@ -88,3 +96,12 @@ def test_product_links_are_contextual_and_activity_log_is_not_customer_facing():
     sourced_expanders = [item.label for item in app.expander]
     assert "SOMELINE solar crimping kit" in sourced_expanders
     assert "16 mm² three-core SWA cable listing" not in sourced_expanders
+
+
+def test_smart_meter_upload_is_validated_in_the_streamlit_ui():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    csv_data = b"timestamp,consumption_kWh\n01/01/2026 00:00,0.2\n01/01/2026 00:30,0.3\n"
+    app.file_uploader[0].upload("meter.csv", csv_data, "text/csv").run()
+    assert not app.exception
+    assert any("Validated 2 consecutive half-hourly readings" in item.value for item in app.success)
+    assert any("Interval battery dispatch is intentionally not enabled" in item.value for item in app.info)

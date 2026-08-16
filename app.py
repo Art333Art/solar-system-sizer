@@ -3,12 +3,14 @@ import streamlit as st
 from solar_sizer import BatteryInputs, LoadInputs, SolarInputs, calculate_system
 from solar_sizer.affiliates import discoverable_affiliate_offers, prominent_affiliate_offers
 from solar_sizer.analytics import record_event
+from solar_sizer.comparison import compare_system_scenarios
 from solar_sizer.content import BUYING_GUIDES
 from solar_sizer.consumer import calculate_consumer_result
 from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quote_interest
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
+from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
-APP_RELEASE = "affiliate-discovery-2026-08"
+APP_RELEASE = "scenario-smart-meter-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -69,7 +71,8 @@ if mode == "Simple":
         ev_miles_week = st.number_input("EV driving (miles/week)", 0.0, 2000.0, 0.0, 10.0)
         wants_battery = st.checkbox("Include battery storage")
         knows_cost = st.checkbox("I have an estimated installed cost")
-        installed_cost = st.number_input("Estimated installed cost (£)", 100.0, 100000.0, 9000.0, 100.0) if knows_cost else None
+        installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if knows_cost else None
+        battery_addon_cost = st.number_input("Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if knows_cost else None
 
     aspect = aspect_map[orientation_label]
     yield_source = "Conservative UK fallback"
@@ -89,7 +92,8 @@ if mode == "Simple":
     consumer = calculate_consumer_result(household_kwh=annual_home_kwh, ev_miles_year=ev_miles_week * 52,
         ev_miles_per_kwh=3.5, ev_charge_efficiency=0.90, specific_yield=specific_yield, panel_wp=440,
         max_panels=int(max_panels), wants_battery=wants_battery, import_tariff_p=import_tariff,
-        export_tariff_p=export_tariff, offpeak_tariff_p=offpeak_tariff, installed_cost_gbp=installed_cost)
+        export_tariff_p=export_tariff, offpeak_tariff_p=offpeak_tariff,
+        installed_cost_gbp=(installed_cost + battery_addon_cost if wants_battery and installed_cost is not None else installed_cost))
     record_event(st.session_state.events, "calculator_completed")
     if ev_miles_week > 0:
         recommendation_contexts.add("ev")
@@ -131,6 +135,20 @@ if mode == "Simple":
 - Off-peak modelling assumes some remaining import can be shifted through a battery at 90% delivery efficiency. It does not assume battery export income.
 - The inverter range is an initial DC/AC screening range. Equipment, phases, DNO route, clipping and backup loads require a competent designer.
 """)
+    comparison_inputs = dict(
+        annual_demand_kwh=consumer.annual_demand_kwh,
+        ev_demand_kwh=consumer.ev_demand_kwh,
+        solar_kwp=consumer.array_kwp,
+        panels=consumer.panels,
+        specific_yield=specific_yield,
+        import_tariff_p=import_tariff,
+        export_tariff_p=export_tariff,
+        offpeak_tariff_p=offpeak_tariff,
+        solar_installed_cost_gbp=installed_cost,
+        battery_addon_cost_gbp=battery_addon_cost,
+    )
+    plan_inverter_low = consumer.inverter_low_kw
+    plan_inverter_high = consumer.inverter_high_kw
 else:
     recommendation_contexts.add("advanced")
     st.subheader("Advanced system-design workbench")
@@ -180,7 +198,8 @@ else:
             advanced_has_offpeak = st.checkbox("Model off-peak battery charging")
             advanced_offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if advanced_has_offpeak else None
             advanced_has_cost = st.checkbox("Include installed cost for payback")
-            advanced_cost = st.number_input("Installed system cost (£)", 100.0, 100000.0, 10000.0, 100.0) if advanced_has_cost else None
+            advanced_cost = st.number_input("Solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if advanced_has_cost else None
+            advanced_battery_cost = st.number_input("Battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if advanced_has_cost else None
         with st.expander("6. Project context", expanded=False):
             diy_context = st.checkbox(
                 "I am sourcing specialist solar/electrical installation materials",
@@ -194,7 +213,8 @@ else:
         ev_miles_per_kwh=ev_efficiency, ev_charge_efficiency=ev_charge_efficiency,
         specific_yield=specific_yield, panel_wp=panel_wp, max_panels=series * parallel,
         wants_battery=True, import_tariff_p=advanced_import_tariff, export_tariff_p=advanced_export_tariff,
-        offpeak_tariff_p=advanced_offpeak_tariff, installed_cost_gbp=advanced_cost,
+        offpeak_tariff_p=advanced_offpeak_tariff,
+        installed_cost_gbp=(advanced_cost + advanced_battery_cost if advanced_cost is not None else None),
         forced_array_kwp=result.array_kwp)
 
     with st.container(border=True):
@@ -234,6 +254,75 @@ else:
         recommendation_contexts.add("ev")
     if diy_context:
         recommendation_contexts.add("diy")
+
+    comparison_inputs = dict(
+        annual_demand_kwh=advanced_finance.annual_demand_kwh,
+        ev_demand_kwh=advanced_finance.ev_demand_kwh,
+        solar_kwp=result.array_kwp,
+        panels=series * parallel,
+        specific_yield=specific_yield,
+        import_tariff_p=advanced_import_tariff,
+        export_tariff_p=advanced_export_tariff,
+        offpeak_tariff_p=advanced_offpeak_tariff,
+        solar_installed_cost_gbp=advanced_cost,
+        battery_addon_cost_gbp=advanced_battery_cost,
+    )
+    plan_inverter_low = result.array_kwp * 0.75
+    plan_inverter_high = result.array_kwp
+
+comparison = compare_system_scenarios(**comparison_inputs)
+battery_scenario = next(item for item in comparison.scenarios if item.key == "battery")
+strongest = next(item for item in comparison.scenarios if item.key == comparison.strongest_key)
+
+st.subheader("Compare system options")
+st.success(f"Strongest financial result under these assumptions: **{strongest.title}** ({comparison.ranking_basis}).")
+if comparison.battery_improves_economics:
+    st.caption("Under these assumptions, adding storage improves the modelled financial result. This is not a recommendation without interval data and firm installed costs.")
+else:
+    st.warning("Under these assumptions, a battery does not improve the financial result versus solar only. Storage may still have non-financial value, but the calculator does not recommend it on economics alone.")
+comparison_rows = []
+for scenario in comparison.scenarios:
+    comparison_rows.append({
+        "Scenario": ("★ " if scenario.key == comparison.strongest_key else "") + scenario.title,
+        "Solar": f"{scenario.solar_kwp:.1f} kWp",
+        "Battery": (f"{scenario.battery_low_kwh:.1f}–{scenario.battery_high_kwh:.1f} kWh" if scenario.battery_high_kwh else "None"),
+        "Generation": f"{scenario.annual_generation_kwh:,.0f} kWh",
+        "Self-consumption": f"{scenario.self_consumption_pct:.0f}%",
+        "Grid import": f"{scenario.grid_import_kwh:,.0f} kWh",
+        "Export": f"{scenario.export_kwh:,.0f} kWh",
+        "Annual benefit": f"£{scenario.annual_benefit_gbp:,.0f}",
+        "Installed cost": (f"£{scenario.installed_cost_gbp:,.0f}" if scenario.installed_cost_gbp is not None else "Not supplied"),
+        "Simple payback": (f"{scenario.payback_years:.1f} years" if scenario.payback_years is not None else "Not available"),
+    })
+st.dataframe(comparison_rows, hide_index=True, use_container_width=True)
+st.caption("Comparison uses one demand total (including EV once), the same solar array in every row, 90% battery round-trip efficiency, up to 250 equivalent solar-shifting cycles/year, and an annual load-timing heuristic. Tariff optimisation screens up to 20% of remaining import when the off-peak rate still wins after losses. This is not a half-hourly dispatch forecast.")
+
+with st.expander("Optional half-hourly smart-meter CSV", expanded=False):
+    st.write("Upload a CSV with `timestamp` and `consumption_kWh` columns. Octopus-style `Start` and `Consumption (kWh)` columns are also supported.")
+    smart_meter_file = st.file_uploader("Half-hourly consumption CSV", type=["csv"])
+    st.caption("The file is parsed locally in this Streamlit session and is not persisted or transmitted by this app.")
+    if smart_meter_file is not None:
+        try:
+            meter_data = parse_smart_meter_csv(smart_meter_file.getvalue())
+            st.success(f"Validated {len(meter_data.readings):,} consecutive half-hourly readings ({meter_data.total_kwh:,.1f} kWh) from {meter_data.start} to {meter_data.end}.")
+            st.info("Interval battery dispatch is intentionally not enabled in this release. The comparison above continues to use the labelled annual timing heuristic until the dispatch model has dedicated validation.")
+        except SmartMeterCSVError as exc:
+            st.error(str(exc))
+
+st.subheader("Your solar plan")
+plan_text = "\n".join((
+    "Your solar plan",
+    f"Solar: {strongest.solar_kwp:.1f} kWp (approximately {strongest.panels} panels)",
+    f"Inverter range: {plan_inverter_low:.1f}–{plan_inverter_high:.1f} kW",
+    f"Suggested battery range: {battery_scenario.battery_low_kwh:.1f}–{battery_scenario.battery_high_kwh:.1f} kWh",
+    f"Annual generation: {strongest.annual_generation_kwh:,.0f} kWh",
+    f"Estimated annual financial benefit: £{strongest.annual_benefit_gbp:,.0f}",
+    f"Estimated simple payback: {strongest.payback_years:.1f} years" if strongest.payback_years is not None else "Estimated simple payback: add installed costs to calculate",
+    "Early-stage estimate only; verify design, costs and permissions with competent professionals.",
+))
+with st.container(border=True):
+    st.code(plan_text, language=None)
+    st.caption("Use the copy control on the result card to share this text. No registration or external sharing service is used.")
 
 st.divider()
 st.subheader("Would a future installer quote service be useful?")
@@ -299,6 +388,7 @@ with st.expander("Methodology, sources, privacy and disclosures"):
 - [ENA connection guidance](https://www.energynetworks.org/industry/engineering-and-technical-programmes/connecting-to-the-networks) covers G98/G99 and type-tested equipment.
 - [MCS consumer guidance](https://mcscertified.com/consumers-communities/) explains certified installation and consumer protection.
 - [GOV.UK smart charge point rules](https://www.gov.uk/guidance/regulations-electric-vehicle-smart-charge-points) cover relevant domestic EV-charger requirements.
+- [Energy Saving Trust battery guidance](https://energysavingtrust.org.uk/advice/battery-storage/) explains why storage size depends on how much electricity a home uses, when it uses it, available solar surplus and time-of-use charging.
 - A postcode is sent to Postcodes.io for coordinates; coordinates and roof inputs are sent to the European Commission PVGIS service. Quote details are not persisted or transmitted.
 - Privacy policy, cookie notice, terms and commercial disclosure require final owner/legal review before public deployment.
 """)
