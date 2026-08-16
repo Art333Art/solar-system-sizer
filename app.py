@@ -12,9 +12,32 @@ from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvg
 from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
 APP_RELEASE = "canonical-configuration-state-2026-08"
+GOOGLE_SITE_VERIFICATION = "jkMhTjEet0DjQX3KZN_IcPw0JfZ4yDgTycbVsBe099s"
+GOOGLE_SITE_VERIFICATION_META = '<meta name="google-site-verification" content="jkMhTjEet0DjQX3KZN_IcPw0JfZ4yDgTycbVsBe099s" />'
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
+st.html(
+    f"""
+    <script>
+    (() => {{
+      const name = "google-site-verification";
+      const content = "{GOOGLE_SITE_VERIFICATION}";
+      const verificationMarkup = `{GOOGLE_SITE_VERIFICATION_META}`;
+      let tag = document.head.querySelector(`meta[name="${{name}}"]`);
+      if (!tag) {{
+        const template = document.createElement("template");
+        template.innerHTML = verificationMarkup;
+        tag = template.content.firstElementChild;
+        document.head.appendChild(tag);
+      }}
+      tag.setAttribute("content", content);
+    }})();
+    </script>
+    """,
+    width="content",
+    unsafe_allow_javascript=True,
+)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
