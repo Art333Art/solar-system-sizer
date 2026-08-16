@@ -10,7 +10,7 @@ from solar_sizer.leads import QuoteInterest, submit_quote_interest, validate_quo
 from solar_sizer.pvgis import SolarDataError, fallback_specific_yield, fetch_pvgis_yield, geocode_uk_postcode
 from solar_sizer.smart_meter import SmartMeterCSVError, parse_smart_meter_csv
 
-APP_RELEASE = "explicit-system-configurations-2026-08"
+APP_RELEASE = "configuration-state-controls-2026-08"
 
 st.set_page_config(page_title="UK Solar Panel, Battery & EV Sizing Calculator", page_icon="☀️", layout="wide",
     menu_items={"About": "Independent UK solar, battery, inverter and EV feasibility calculator."})
@@ -35,6 +35,24 @@ st.markdown("Estimate how many solar panels you may need, a sensible battery ran
 st.caption("Free independent early-stage estimate — not an installer quotation or final electrical design.")
 mode = st.radio("Calculator mode", ["Simple", "Advanced"], horizontal=True,
                 help="Simple uses homeowner-friendly assumptions. Advanced exposes datasheet and electrical limits.")
+configuration_options = [
+    "Grid only / baseline", "Solar only", "Battery only", "Solar + battery",
+    "Solar + battery + tariff optimisation",
+]
+selected_configuration = st.selectbox(
+    "System configuration",
+    configuration_options,
+    index=1,
+    key="system_configuration",
+    help="Choose what the selected result includes before entering detailed assumptions. All applicable configurations are compared below.",
+)
+selected_key = {
+    "Grid only / baseline": "grid", "Solar only": "solar", "Battery only": "battery_only",
+    "Solar + battery": "battery", "Solar + battery + tariff optimisation": "tariff",
+}[selected_configuration]
+solar_active = selected_key in {"solar", "battery", "tariff"}
+battery_active = selected_key in {"battery_only", "battery", "tariff"}
+tariff_active = selected_key == "tariff"
 if mode == "Advanced":
     record_event(st.session_state.events, "advanced_opened")
 recommendation_contexts = {"monitoring"}
@@ -43,7 +61,7 @@ if mode == "Simple":
     st.subheader("Tell us about your home")
     c1, c2 = st.columns(2)
     with c1:
-        postcode = st.text_input("UK postcode", placeholder="For example, M1 1AE",
+        postcode = st.text_input("UK postcode", placeholder="For example, M1 1AE", disabled=not solar_active,
             help="Used to obtain coordinates, which are sent to PVGIS for the solar estimate.")
         usage_basis = st.radio("Electricity usage", ["Annual", "Daily"], horizontal=True)
         usage_value = st.number_input("Usage (kWh/year)" if usage_basis == "Annual" else "Usage (kWh/day)",
@@ -51,43 +69,41 @@ if mode == "Simple":
         annual_home_kwh = usage_value if usage_basis == "Annual" else usage_value * 365
         import_tariff = st.number_input("Electricity import tariff (p/kWh)", 0.1, 100.0, 25.0, 0.5)
         export_tariff = st.number_input("Export tariff (p/kWh)", 0.0, 100.0, 15.0, 0.5)
-        has_offpeak = st.checkbox("I have an off-peak import tariff")
+        if tariff_active:
+            st.caption("Tariff optimisation selected: enter the required off-peak tariff and charging window below.")
+            has_offpeak = True
+        else:
+            has_offpeak = st.checkbox("I have an off-peak import tariff", key="simple_has_offpeak")
         offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if has_offpeak else None
         offpeak_window_hours = st.number_input("Off-peak charging window (hours/day)", 0.5, 12.0, 4.0, 0.5) if has_offpeak else 0.0
     with c2:
-        orientation_label = st.selectbox("Main roof orientation", ["South", "South-east", "South-west", "East", "West", "North-east", "North-west", "North"])
+        orientation_label = st.selectbox("Main roof orientation", ["South", "South-east", "South-west", "East", "West", "North-east", "North-west", "North"], disabled=not solar_active)
         aspect_map = {"South": 0, "South-east": -45, "South-west": 45, "East": -90, "West": 90,
                       "North-east": -135, "North-west": 135, "North": 180}
-        roof_description = st.selectbox("Roof pitch", ["Typical pitched roof (~35°)", "Shallow pitch (~20°)", "Steep pitch (~50°)", "Flat roof (~10°)", "Enter angle"])
+        roof_description = st.selectbox("Roof pitch", ["Typical pitched roof (~35°)", "Shallow pitch (~20°)", "Steep pitch (~50°)", "Flat roof (~10°)", "Enter angle"], disabled=not solar_active)
         tilt_map = {"Typical pitched roof (~35°)": 35, "Shallow pitch (~20°)": 20,
                     "Steep pitch (~50°)": 50, "Flat roof (~10°)": 10}
-        tilt = st.number_input("Roof tilt from horizontal (degrees)", 0, 90, 35) if roof_description == "Enter angle" else tilt_map[roof_description]
-        roof_basis = st.radio("Available roof space", ["Usable area", "Approximate panel count"], horizontal=True)
+        tilt = st.number_input("Roof tilt from horizontal (degrees)", 0, 90, 35, disabled=not solar_active) if roof_description == "Enter angle" else tilt_map[roof_description]
+        roof_basis = st.radio("Available roof space", ["Usable area", "Approximate panel count"], horizontal=True, disabled=not solar_active)
         if roof_basis == "Usable area":
-            roof_area = st.number_input("Usable unshaded roof area (m²)", 2.0, 300.0, 30.0, 1.0)
+            roof_area = st.number_input("Usable unshaded roof area (m²)", 2.0, 300.0, 30.0, 1.0, disabled=not solar_active, key="simple_roof_area")
             max_panels = max(1, int(roof_area / 2.0))
-            st.caption(f"Assuming about 2 m² per panel: space for roughly {max_panels} panels.")
+            if solar_active:
+                st.caption(f"Assuming about 2 m² per panel: space for roughly {max_panels} panels.")
+            else:
+                st.caption("Solar inputs are inactive for the selected configuration.")
         else:
-            max_panels = st.number_input("Approximate maximum panel count", 1, 100, 12)
+            max_panels = st.number_input("Approximate maximum panel count", 1, 100, 12, disabled=not solar_active)
         ev_miles_week = st.number_input("EV driving (miles/week)", 0.0, 2000.0, 0.0, 10.0)
-        configuration_options = ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
-        if has_offpeak:
-            configuration_options.append("Solar + battery + tariff optimisation")
-        selected_configuration = st.selectbox("System configuration", configuration_options, index=1,
-            help="Choose exactly which technologies are included in the selected result. All available configurations are still compared below.")
-        selected_key = {
-            "Grid only / baseline": "grid", "Solar only": "solar", "Battery only": "battery_only",
-            "Solar + battery": "battery", "Solar + battery + tariff optimisation": "tariff",
-        }[selected_configuration]
-        wants_battery = selected_key in {"battery_only", "battery", "tariff"}
+        wants_battery = battery_active
         knows_cost = st.checkbox("I have an estimated installed cost")
-        installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if knows_cost else None
-        battery_addon_cost = st.number_input("Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if knows_cost else None
+        installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0, disabled=not solar_active) if knows_cost else None
+        battery_addon_cost = st.number_input("Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0, disabled=not battery_active) if knows_cost else None
 
     aspect = aspect_map[orientation_label]
     yield_source = "Conservative UK fallback"
     specific_yield = fallback_specific_yield(aspect, tilt)
-    if postcode.strip():
+    if solar_active and postcode.strip():
         try:
             with st.spinner("Checking local solar resource with PVGIS…"):
                 lat, lon = cached_location(postcode)
@@ -96,7 +112,7 @@ if mode == "Simple":
             yield_source = f"PVGIS 5.3 ({specific_yield:.0f} kWh/kWp/year)"
         except SolarDataError as exc:
             st.warning(f"{exc}. Using a conservative UK fallback; try again before making a purchase decision.")
-    else:
+    elif solar_active:
         st.info("Enter a complete postcode for an automatic location-specific PVGIS estimate. A conservative placeholder is shown meanwhile.")
 
     consumer = calculate_consumer_result(household_kwh=annual_home_kwh, ev_miles_year=ev_miles_week * 52,
@@ -177,57 +193,53 @@ else:
             ev_miles = st.number_input("EV driving (miles/day)", 0.0, 300.0, 20.0, 1.0)
             ev_efficiency = st.number_input("EV efficiency (miles/kWh)", 1.0, 6.0, 3.5, 0.1)
             ev_charge_efficiency = st.slider("EV charging efficiency", 70, 100, 90) / 100
-        with st.expander("2. PV module and strings", expanded=True):
-            panel_wp = st.number_input("Panel power (Wp)", 200, 800, 440, 5)
-            series = st.number_input("Panels per series string", 1, 40, 10)
-            parallel = st.number_input("Parallel strings on this MPPT", 1, 10, 1)
-            voc = st.number_input("Panel Voc at STC (V)", 10.0, 100.0, 39.5, 0.1)
-            vmp = st.number_input("Panel Vmp at STC (V)", 10.0, 100.0, 33.2, 0.1)
-            isc = st.number_input("Panel Isc at STC (A)", 1.0, 30.0, 14.0, 0.1)
-            imp = st.number_input("Panel Imp at STC (A)", 1.0, 30.0, 13.25, 0.1)
-            voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01)
-            min_temp = st.number_input("Design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0)
-        with st.expander("3. Inverter and MPPT", expanded=True):
-            inverter_kw = st.number_input("Rated AC output (kW)", 0.5, 50.0, 3.68, 0.1)
-            max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0)
-            mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0)
-            mppt_max = st.number_input("MPPT maximum operating voltage (V)", 50.0, 1500.0, 550.0, 10.0)
-            max_imp = st.number_input("Maximum operating current/MPPT (A)", 1.0, 100.0, 25.0, 1.0)
-            max_isc = st.number_input("Maximum short-circuit current/MPPT (A)", 1.0, 150.0, 32.0, 1.0)
-            battery_inverter_kw = st.number_input("Inverter battery charge/discharge limit (kW)", 0.1, 100.0, 5.0, 0.1)
-        with st.expander("4. Battery", expanded=False):
-            chemistry = st.selectbox("Battery chemistry", ["LFP", "NMC", "Lead-acid / AGM", "Other / manufacturer-defined"])
+        with st.expander("2. PV module and strings", expanded=solar_active):
+            panel_wp = st.number_input("Panel power (Wp)", 200, 800, 440, 5, disabled=not solar_active, key="advanced_panel_wp")
+            series = st.number_input("Panels per series string", 1, 40, 10, disabled=not solar_active)
+            parallel = st.number_input("Parallel strings on this MPPT", 1, 10, 1, disabled=not solar_active)
+            voc = st.number_input("Panel Voc at STC (V)", 10.0, 100.0, 39.5, 0.1, disabled=not solar_active)
+            vmp = st.number_input("Panel Vmp at STC (V)", 10.0, 100.0, 33.2, 0.1, disabled=not solar_active)
+            isc = st.number_input("Panel Isc at STC (A)", 1.0, 30.0, 14.0, 0.1, disabled=not solar_active)
+            imp = st.number_input("Panel Imp at STC (A)", 1.0, 30.0, 13.25, 0.1, disabled=not solar_active)
+            voc_coeff = st.number_input("Voc temperature coefficient (%/°C)", -1.0, -0.01, -0.25, 0.01, disabled=not solar_active)
+            min_temp = st.number_input("Design minimum temperature (°C)", -30.0, 10.0, -10.0, 1.0, disabled=not solar_active)
+        with st.expander("3. Inverter and MPPT", expanded=solar_active):
+            inverter_kw = st.number_input("Rated AC output (kW)", 0.5, 50.0, 3.68, 0.1, disabled=not solar_active)
+            max_dc_v = st.number_input("Absolute maximum DC voltage (V)", 50.0, 1500.0, 600.0, 10.0, disabled=not solar_active)
+            mppt_min = st.number_input("MPPT minimum voltage (V)", 20.0, 1200.0, 120.0, 10.0, disabled=not solar_active)
+            mppt_max = st.number_input("MPPT maximum operating voltage (V)", 50.0, 1500.0, 550.0, 10.0, disabled=not solar_active)
+            max_imp = st.number_input("Maximum operating current/MPPT (A)", 1.0, 100.0, 25.0, 1.0, disabled=not solar_active)
+            max_isc = st.number_input("Maximum short-circuit current/MPPT (A)", 1.0, 150.0, 32.0, 1.0, disabled=not solar_active)
+            battery_inverter_kw = st.number_input("Inverter battery charge/discharge limit (kW)", 0.1, 100.0, 5.0, 0.1, disabled=not battery_active)
+        with st.expander("4. Battery", expanded=battery_active):
+            chemistry = st.selectbox("Battery chemistry", ["LFP", "NMC", "Lead-acid / AGM", "Other / manufacturer-defined"], disabled=not battery_active)
             st.caption("Chemistry is recorded for context; use the selected battery datasheet for usable capacity and current limits.")
-            autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12)
-            usable = st.slider("Usable battery fraction (%)", 20, 100, 90) / 100
-            charge_efficiency = st.slider("AC-to-battery efficiency (%)", 70, 100, 95) / 100
-            discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94) / 100
-            battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0)
-            battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0)
+            autonomy = st.slider("Battery coverage target (hours)", 1, 48, 12, disabled=not battery_active)
+            usable = st.slider("Usable battery fraction (%)", 20, 100, 90, disabled=not battery_active) / 100
+            charge_efficiency = st.slider("AC-to-battery efficiency (%)", 70, 100, 95, disabled=not battery_active) / 100
+            discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94, disabled=not battery_active) / 100
+            battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0, disabled=not battery_active)
+            battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0, disabled=not battery_active)
         with st.expander("5. Grid, yield and economics", expanded=False):
-            phases = st.selectbox("Grid phases", [1, 3])
-            export_limited = st.checkbox("Export limitation scheme proposed")
-            export_limit_kw = st.number_input("Proposed export limit (kW)", 0.0, 50.0, 3.68, 0.1) if export_limited else inverter_kw
-            specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0)
-            pvgis_losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14,
+            phases = st.selectbox("Grid phases", [1, 3], disabled=not solar_active)
+            export_limited = st.checkbox("Export limitation scheme proposed", disabled=not solar_active)
+            export_limit_kw = st.number_input("Proposed export limit (kW)", 0.0, 50.0, 3.68, 0.1, disabled=not solar_active) if export_limited else inverter_kw
+            specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0, disabled=not solar_active)
+            pvgis_losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14, disabled=not solar_active,
                 help="Recorded with the manual yield assumption; do not deduct it again from a PVGIS AC-yield result.")
             advanced_import_tariff = st.number_input("Import tariff (p/kWh)", 0.1, 100.0, 25.0, 0.5)
             advanced_export_tariff = st.number_input("Export tariff (p/kWh)", 0.0, 100.0, 15.0, 0.5)
-            advanced_has_offpeak = st.checkbox("Model off-peak battery charging")
+            if tariff_active:
+                st.caption("Tariff optimisation selected: configure its off-peak assumptions below.")
+                advanced_has_offpeak = True
+            else:
+                advanced_has_offpeak = st.checkbox("Model off-peak battery charging", key="advanced_has_offpeak")
             advanced_offpeak_tariff = st.number_input("Off-peak tariff (p/kWh)", 0.0, 100.0, 8.0, 0.5) if advanced_has_offpeak else None
             advanced_offpeak_window = st.number_input("Off-peak charging window (hours/day)", 0.5, 12.0, 4.0, 0.5) if advanced_has_offpeak else 0.0
             advanced_has_cost = st.checkbox("Include installed cost for payback")
-            advanced_cost = st.number_input("Solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0) if advanced_has_cost else None
-            advanced_battery_cost = st.number_input("Battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0) if advanced_has_cost else None
+            advanced_cost = st.number_input("Solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0, disabled=not solar_active) if advanced_has_cost else None
+            advanced_battery_cost = st.number_input("Battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0, disabled=not battery_active) if advanced_has_cost else None
         with st.expander("6. Project context", expanded=False):
-            advanced_configuration_options = ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
-            if advanced_has_offpeak:
-                advanced_configuration_options.append("Solar + battery + tariff optimisation")
-            advanced_configuration = st.selectbox("System configuration", advanced_configuration_options, index=3)
-            selected_key = {
-                "Grid only / baseline": "grid", "Solar only": "solar", "Battery only": "battery_only",
-                "Solar + battery": "battery", "Solar + battery + tariff optimisation": "tariff",
-            }[advanced_configuration]
             diy_context = st.checkbox(
                 "I am sourcing specialist solar/electrical installation materials",
                 help="Only use specialist tools and cable after a competent designer has specified the exact products and installation method.",
@@ -320,8 +332,9 @@ else:
     st.warning("Under these assumptions, a battery does not improve the financial result versus solar only. Storage may still have non-financial value, but the calculator does not recommend it on economics alone.")
 comparison_rows = []
 for scenario in comparison.scenarios:
+    scenario_prefix = ("✓ Selected " if scenario.key == selected_key else "") + ("★ " if scenario.key == comparison.strongest_key else "")
     comparison_rows.append({
-        "Scenario": ("★ " if scenario.key == comparison.strongest_key else "") + scenario.title,
+        "Scenario": scenario_prefix + scenario.title,
         "Solar": f"{scenario.solar_kwp:.1f} kWp",
         "Battery": (f"{scenario.battery_usable_kwh:.1f} kWh usable" if scenario.battery_usable_kwh else "None"),
         "Generation": f"{scenario.annual_generation_kwh:,.0f} kWh",

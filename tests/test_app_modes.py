@@ -10,6 +10,10 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert any(metric.label == "Selected solar array" for metric in app.metric)
     configuration = next(item for item in app.selectbox if item.label == "System configuration")
     assert configuration.value == "Solar only"
+    assert configuration.options == [
+        "Grid only / baseline", "Solar only", "Battery only", "Solar + battery",
+        "Solar + battery + tariff optimisation",
+    ]
     assert any(item.value == "Compare system options" for item in app.subheader)
     assert any(item.value == "Your solar plan" for item in app.subheader)
     assert app.file_uploader[0].label == "Half-hourly consumption CSV"
@@ -38,7 +42,7 @@ def test_simple_and_advanced_modes_are_first_class_and_mode_persists_on_rerun():
     assert app.radio[0].value == "Advanced"
     assert next(metric for metric in app.metric if metric.label == "Selected array").value == "5.00 kWp"
     advanced_configuration = next(item for item in app.selectbox if item.label == "System configuration")
-    assert advanced_configuration.value == "Solar + battery"
+    assert advanced_configuration.value == "Solar only"
     advanced_configuration.set_value("Grid only / baseline").run()
     assert next(metric for metric in app.metric if metric.label == "Selected array").value == "0.00 kWp"
     assert any("PV string and inverter checks are not applicable" in item.value for item in app.info)
@@ -108,7 +112,10 @@ def test_smart_meter_upload_is_validated_in_the_streamlit_ui():
 def test_explicit_system_configurations_control_simple_results_and_tariff_availability():
     app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
     configuration = next(item for item in app.selectbox if item.label == "System configuration")
-    assert configuration.options == ["Grid only / baseline", "Solar only", "Battery only", "Solar + battery"]
+    assert configuration.options == [
+        "Grid only / baseline", "Solar only", "Battery only", "Solar + battery",
+        "Solar + battery + tariff optimisation",
+    ]
     assert len(app.dataframe[0].value) == 4
     assert any("Add an off-peak tariff" in item.value for item in app.info)
 
@@ -121,12 +128,9 @@ def test_explicit_system_configurations_control_simple_results_and_tariff_availa
     assert next(metric for metric in app.metric if metric.label == "Selected solar array").value == "0.0 kWp"
     assert "usable" in next(metric for metric in app.metric if metric.label == "Selected battery").value
 
-    has_offpeak = next(item for item in app.checkbox if item.label == "I have an off-peak import tariff")
-    has_offpeak.set_value(True).run()
     configuration = next(item for item in app.selectbox if item.label == "System configuration")
-    assert "Solar + battery + tariff optimisation" in configuration.options
-    assert len(app.dataframe[0].value) == 5
     configuration.set_value("Solar + battery + tariff optimisation").run()
+    assert len(app.dataframe[0].value) == 5
     assert "Selected configuration: Solar + battery + tariff optimisation" in app.code[0].value
 
     rows = app.dataframe[0].value.set_index("Scenario")
@@ -135,3 +139,51 @@ def test_explicit_system_configurations_control_simple_results_and_tariff_availa
     assert rows.loc[battery_row, "Off-peak charge"] == "0 kWh"
     assert rows.loc[tariff_row, "Off-peak charge"] != "0 kWh"
     assert rows.loc[battery_row, "Annual electricity cost"] != rows.loc[tariff_row, "Annual electricity cost"]
+
+
+def test_inactive_component_outputs_clear_and_input_state_survives_switching():
+    app = AppTest.from_file(Path(__file__).parents[1] / "app.py", default_timeout=20).run()
+    roof_area = next(item for item in app.number_input if item.label == "Usable unshaded roof area (m²)")
+    roof_area.set_value(42).run()
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    configuration.set_value("Battery only").run()
+    roof_area = next(item for item in app.number_input if item.label == "Usable unshaded roof area (m²)")
+    assert roof_area.disabled and roof_area.value == 42
+    assert next(metric for metric in app.metric if metric.label == "Selected solar array").value == "0.0 kWp"
+    assert next(metric for metric in app.metric if metric.label == "Estimated annual generation").value == "0 kWh/year"
+    assert "Solar: disabled" in app.code[0].value
+    rows = app.dataframe[0].value.set_index("Scenario")
+    selected_row = next(index for index in rows.index if "Selected" in index)
+    assert "Battery only" in selected_row
+    assert rows.loc[selected_row, "Solar"] == "0.0 kWp"
+    assert rows.loc[selected_row, "Generation"] == "0 kWh"
+
+    configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    configuration.set_value("Solar only").run()
+    roof_area = next(item for item in app.number_input if item.label == "Usable unshaded roof area (m²)")
+    assert not roof_area.disabled and roof_area.value == 42
+    assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "Battery disabled"
+    assert "Battery: disabled" in app.code[0].value
+    rows = app.dataframe[0].value.set_index("Scenario")
+    selected_row = next(index for index in rows.index if "Selected" in index)
+    assert "Solar only" in selected_row
+    assert rows.loc[selected_row, "Battery"] == "None"
+
+    app.radio[0].set_value("Advanced").run()
+    assert len([item for item in app.selectbox if item.label == "System configuration"]) == 1
+    advanced_configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    assert advanced_configuration.options == configuration.options
+    panel_power = next(item for item in app.number_input if item.label == "Panel power (Wp)")
+    panel_power.set_value(500).run()
+    advanced_configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    advanced_configuration.set_value("Battery only").run()
+    panel_power = next(item for item in app.number_input if item.label == "Panel power (Wp)")
+    assert panel_power.disabled and panel_power.value == 500
+    assert next(metric for metric in app.metric if metric.label == "Selected array").value == "0.00 kWp"
+    assert next(metric for metric in app.metric if metric.label == "Annual generation").value == "0 kWh"
+
+    advanced_configuration = next(item for item in app.selectbox if item.label == "System configuration")
+    advanced_configuration.set_value("Solar + battery").run()
+    panel_power = next(item for item in app.number_input if item.label == "Panel power (Wp)")
+    assert not panel_power.disabled and panel_power.value == 500
+    assert next(metric for metric in app.metric if metric.label == "Selected array").value == "5.00 kWp"
