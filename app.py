@@ -113,7 +113,6 @@ if mode == "Simple":
         ev_miles_week = st.number_input("EV driving (miles/week)", 0.0, 2000.0, 0.0, 10.0)
         knows_cost = st.checkbox("I have an estimated installed cost")
         installed_cost = st.number_input("Estimated solar-only installed cost (£)", 100.0, 100000.0, 7000.0, 100.0, disabled=not solar_active) if knows_cost else None
-        battery_addon_cost = st.number_input("Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0, disabled=not battery_active) if knows_cost else None
 
     simple_ev_kwh = ev_miles_week * 52 / 3.5 / 0.90
     simple_daily_kwh = (annual_home_kwh + simple_ev_kwh) / 365
@@ -138,6 +137,10 @@ if mode == "Simple":
             "Allow battery export to grid", value=False, disabled=not battery_active,
             key="simple_allow_battery_export",
         )
+        battery_addon_cost = st.number_input(
+            "Estimated battery add-on cost (£)", 0.0, 50000.0, 5000.0, 100.0,
+            disabled=not battery_active,
+        ) if knows_cost else None
         if battery_active:
             st.caption("Battery export is modelled only when the entered tariff makes it viable. Supplier and export-tariff eligibility for grid-charged energy varies.")
 
