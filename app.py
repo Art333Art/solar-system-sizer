@@ -281,9 +281,14 @@ else:
             discharge_efficiency = st.slider("Battery-to-AC efficiency (%)", 70, 100, 94, disabled=not battery_active) / 100
             battery_v = st.number_input("Battery nominal voltage (V)", 12.0, 1000.0, 51.2, 1.0, disabled=not battery_active)
             battery_a = st.number_input("Battery/BMS continuous current (A)", 1.0, 1000.0, 100.0, 5.0, disabled=not battery_active)
-            battery_charge_limit_kw = persistent_number_input("AC battery charge power limit (kW)", 0.1, 100.0, 5.0, 0.1,
+            st.markdown("##### Battery inverter/charger")
+            battery_inverter_rating_kw = persistent_number_input(
+                "Battery inverter/charger rated power (kW)", 0.1, 100.0, 8.0, 0.1,
+                disabled=not battery_inverter_active, state_key="advanced_battery_inverter_rating",
+            )
+            battery_charge_limit_kw = persistent_number_input("Inverter/charger AC charge limit (kW)", 0.1, 100.0, 5.0, 0.1,
                 disabled=not battery_inverter_active, state_key="advanced_battery_charge_power")
-            battery_discharge_limit_kw = persistent_number_input("AC battery discharge power limit (kW)", 0.1, 100.0, 5.0, 0.1,
+            battery_discharge_limit_kw = persistent_number_input("Inverter/charger AC discharge limit (kW)", 0.1, 100.0, 8.0, 0.1,
                 disabled=not battery_inverter_active, state_key="advanced_battery_discharge_power")
             advanced_allow_battery_export = st.checkbox(
                 "Allow battery export to grid", value=False, disabled=not battery_active,
@@ -293,7 +298,9 @@ else:
         with st.expander("5. Grid, yield and economics", expanded=False):
             phases = st.selectbox("Grid phases", [1, 3], disabled=not inverter_charger_active)
             export_limited = st.checkbox("Export limitation scheme proposed", disabled=not inverter_charger_active)
-            active_ac_limit_kw = inverter_kw if pv_inverter_active else battery_discharge_limit_kw
+            active_ac_limit_kw = inverter_kw if pv_inverter_active else min(
+                battery_inverter_rating_kw, battery_discharge_limit_kw
+            )
             export_limit_kw = st.number_input("Proposed export limit (kW)", 0.0, 50.0, 3.68, 0.1, disabled=not inverter_charger_active) if export_limited else active_ac_limit_kw
             specific_yield = st.number_input("Manual PVGIS yield override (kWh/kWp/year)", 300.0, 1400.0, 900.0, 10.0, disabled=not solar_active)
             pvgis_losses = st.slider("PVGIS system-loss assumption (%)", 0, 40, 14, disabled=not solar_active,
@@ -319,7 +326,7 @@ else:
         SolarInputs(panel_wp, series, parallel, voc, vmp, isc, imp, voc_coeff, min_temp, max_dc_v,
             mppt_min, mppt_max, max_imp, max_isc, inverter_kw, phases, specific_yield, pvgis_losses),
         BatteryInputs(autonomy, usable, discharge_efficiency, battery_v, battery_a,
-                      min(battery_charge_limit_kw, battery_discharge_limit_kw)))
+                      battery_inverter_rating_kw))
     advanced_finance = calculate_consumer_result(household_kwh=home_kwh * 365, ev_miles_year=ev_miles * 365,
         ev_miles_per_kwh=ev_efficiency, ev_charge_efficiency=ev_charge_efficiency,
         specific_yield=specific_yield, panel_wp=panel_wp, max_panels=series * parallel,
@@ -341,8 +348,8 @@ else:
         battery_usable_kwh=battery_nominal_capacity * usable,
         battery_charge_efficiency=charge_efficiency,
         battery_discharge_efficiency=discharge_efficiency,
-        battery_charge_power_kw=min(battery_v * battery_a / 1000, battery_charge_limit_kw),
-        battery_discharge_power_kw=min(battery_v * battery_a / 1000, battery_discharge_limit_kw),
+        battery_charge_power_kw=min(battery_v * battery_a / 1000, battery_inverter_rating_kw, battery_charge_limit_kw),
+        battery_discharge_power_kw=min(battery_v * battery_a / 1000, battery_inverter_rating_kw, battery_discharge_limit_kw),
         allow_battery_export=advanced_allow_battery_export,
         offpeak_window_hours=advanced_offpeak_window or 4.0,
     )
@@ -360,11 +367,11 @@ else:
         battery_selected = selected_scenario.battery_usable_kwh > 0
         capability_cols[0].metric(
             "Battery charge capability",
-            f"≤ {min(raw_battery_limit_kw, battery_charge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+            f"≤ {min(raw_battery_limit_kw, battery_inverter_rating_kw, battery_charge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
         )
         capability_cols[1].metric(
             "Battery discharge capability",
-            f"≤ {min(raw_battery_limit_kw, battery_discharge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
+            f"≤ {min(raw_battery_limit_kw, battery_inverter_rating_kw, battery_discharge_limit_kw):.1f} kW" if battery_selected else "Not applicable",
         )
         capability_cols[2].metric(
             "Battery/BMS raw limit",

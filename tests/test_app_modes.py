@@ -208,7 +208,11 @@ def test_explicit_battery_capacity_controls_are_available_in_both_modes():
     nominal.set_value(14.0).run()
     assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.6 kWh usable"
     labels = {item.label for item in app.number_input}
-    assert {"AC battery charge power limit (kW)", "AC battery discharge power limit (kW)"} <= labels
+    assert {
+        "Battery inverter/charger rated power (kW)",
+        "Inverter/charger AC charge limit (kW)",
+        "Inverter/charger AC discharge limit (kW)",
+    } <= labels
     app.radio[0].set_value("Simple").run()
     assert next(item for item in app.number_input if item.label == "Battery size (kWh usable)").value == 12.5
     assert next(metric for metric in app.metric if metric.label == "Selected battery").value == "12.5 kWh usable"
@@ -254,11 +258,13 @@ def test_advanced_configuration_matrix_keeps_battery_inverter_active_without_pv(
         next(item for item in app.selectbox if item.label == "System configuration").set_value(title).run()
         panel = next(item for item in app.number_input if item.label == "Panel power (Wp)")
         pv_inverter = next(item for item in app.number_input if item.label == "PV inverter rated AC output (kW)")
-        charge = next(item for item in app.number_input if item.label == "AC battery charge power limit (kW)")
-        discharge = next(item for item in app.number_input if item.label == "AC battery discharge power limit (kW)")
+        inverter = next(item for item in app.number_input if item.label == "Battery inverter/charger rated power (kW)")
+        charge = next(item for item in app.number_input if item.label == "Inverter/charger AC charge limit (kW)")
+        discharge = next(item for item in app.number_input if item.label == "Inverter/charger AC discharge limit (kW)")
         phases = next(item for item in app.selectbox if item.label == "Grid phases")
         assert panel.disabled is (not solar_active)
         assert pv_inverter.disabled is (not solar_active)
+        assert inverter.disabled is (not battery_active)
         assert charge.disabled is (not battery_active)
         assert discharge.disabled is (not battery_active)
         assert phases.disabled is (not (solar_active or battery_active))
@@ -297,8 +303,9 @@ def test_advanced_overview_separates_charge_discharge_and_raw_bms_limits():
     app.radio[0].set_value("Advanced").run()
     next(item for item in app.number_input if item.label == "Battery nominal voltage (V)").set_value(100.0).run()
     next(item for item in app.number_input if item.label == "Battery/BMS continuous current (A)").set_value(100.0).run()
-    next(item for item in app.number_input if item.label == "AC battery charge power limit (kW)").set_value(5.0).run()
-    next(item for item in app.number_input if item.label == "AC battery discharge power limit (kW)").set_value(8.0).run()
+    next(item for item in app.number_input if item.label == "Battery inverter/charger rated power (kW)").set_value(8.0).run()
+    next(item for item in app.number_input if item.label == "Inverter/charger AC charge limit (kW)").set_value(5.0).run()
+    next(item for item in app.number_input if item.label == "Inverter/charger AC discharge limit (kW)").set_value(8.0).run()
     metrics = {item.label: item.value for item in app.metric}
     assert metrics["Battery charge capability"] == "≤ 5.0 kW"
     assert metrics["Battery discharge capability"] == "≤ 8.0 kW"
