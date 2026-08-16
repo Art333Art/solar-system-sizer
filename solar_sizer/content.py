@@ -4,6 +4,8 @@ A useful first estimate starts with annual electricity demand divided by local a
 """,
     "What size solar battery do I need?": """
 Battery capacity should follow the energy that can realistically be shifted from daytime into evening, not simply one full day of consumption. The Simple estimate shows a broad range based on average daily demand. Half-hourly smart-meter data, backup-load requirements, usable capacity, inverter power and battery warranty limits should decide the final size. Oversized batteries often sit partly empty in winter and partly unused in summer.
+
+For a battery-only setup, size the battery around the peak-rate electricity you want to replace and how much energy can be charged during the off-peak window. Solar surplus is not relevant, but charging power, losses and tariff savings still matter.
 """,
     "Solar panels with an EV": """
 Convert annual EV mileage into charging energy using the vehicle's miles per kWh and charging losses, then add it to household demand. Timing matters: daytime smart charging can increase direct solar use, while overnight charging usually remains grid import even when annual PV generation exceeds annual EV demand. The calculator assumes 3.5 miles/kWh and 90% charging efficiency in Simple mode.
